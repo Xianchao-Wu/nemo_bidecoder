@@ -21,7 +21,8 @@ from nemo.collections.asr.modules.positionwise_feed_forward import PositionwiseF
 
 #from wenet.utils.mask import (subsequent_mask, make_pad_mask)
 #from nemo.collections.asr.modules.mask import (subsequent_mask, make_pad_mask)
-from nemo.collections.common.mask import (subsequent_mask, make_pad_mask)
+#from nemo.collections.common.mask import (subsequent_mask, make_pad_mask)
+from nemo.collections.asr.utils.mask import (subsequent_mask, make_pad_mask)
 
 from nemo.core.classes.exportable import Exportable
 from nemo.core.classes.module import NeuralModule
@@ -33,8 +34,8 @@ __all__ = ['TransformerDecoder', 'BiTransformerDecoder']
 class TransformerDecoder(NeuralModule, Exportable):
     """Base class of Transfomer decoder module.
     Args:
-        vocab_size: output dim
-        encoder_output_size: dimension of attention
+        num_classes (vocab_size): output dim
+        feat_in: (encoder_output_size): dimension of attention
         attention_heads: the number of heads of multi head attention
         linear_units: the hidden units number of position-wise feedforward
         num_blocks: the number of decoder blocks
@@ -52,8 +53,8 @@ class TransformerDecoder(NeuralModule, Exportable):
     """
     def __init__(
         self,
-        vocab_size: int,
-        encoder_output_size: int,
+        num_classes: int, #vocab_size: int,
+        feat_in: int, #encoder_output_size: int,
         attention_heads: int = 4,
         linear_units: int = 2048,
         num_blocks: int = 6,
@@ -68,11 +69,12 @@ class TransformerDecoder(NeuralModule, Exportable):
     ):
         assert check_argument_types()
         super().__init__()
-        attention_dim = encoder_output_size
+        attention_dim = feat_in # encoder_output_size
 
         if input_layer == "embed":
             self.embed = torch.nn.Sequential(
-                torch.nn.Embedding(vocab_size, attention_dim),
+                torch.nn.Embedding(num_classes, #vocab_size, 
+                    attention_dim),
                 PositionalEncoding(attention_dim, positional_dropout_rate),
             )
         else:
@@ -81,7 +83,7 @@ class TransformerDecoder(NeuralModule, Exportable):
         self.normalize_before = normalize_before
         self.after_norm = torch.nn.LayerNorm(attention_dim, eps=1e-5)
         self.use_output_layer = use_output_layer
-        self.output_layer = torch.nn.Linear(attention_dim, vocab_size)
+        self.output_layer = torch.nn.Linear(attention_dim, num_classes) #vocab_size)
         self.num_blocks = num_blocks
         self.decoders = torch.nn.ModuleList([
             DecoderLayer(
@@ -120,7 +122,7 @@ class TransformerDecoder(NeuralModule, Exportable):
         Returns:
             (tuple): tuple containing:
                 x: decoded token score before softmax (batch, maxlen_out,
-                    vocab_size) if use_output_layer is True,
+                    num_classes=vocab_size) if use_output_layer is True,
                 torch.tensor(0.0), in order to unify api with bidirectional decoder
                 olens: (batch, )
         """
@@ -193,8 +195,8 @@ class TransformerDecoder(NeuralModule, Exportable):
 class BiTransformerDecoder(NeuralModule, Exportable):
     """Base class of Transfomer decoder module.
     Args:
-        vocab_size: output dim
-        encoder_output_size: dimension of attention
+        num_classes (vocab_size): output dim
+        feat_in (encoder_output_size): dimension of attention
         attention_heads: the number of heads of multi head attention
         linear_units: the hidden units number of position-wise feedforward
         num_blocks: the number of decoder blocks
@@ -213,8 +215,8 @@ class BiTransformerDecoder(NeuralModule, Exportable):
     """
     def __init__(
         self,
-        vocab_size: int,
-        encoder_output_size: int,
+        num_classes: int, #vocab_size: int,
+        feat_in: int, #encoder_output_size: int,
         attention_heads: int = 4,
         linear_units: int = 2048,
         num_blocks: int = 6,
@@ -232,13 +234,17 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         assert check_argument_types()
         super().__init__()
         self.left_decoder = TransformerDecoder(
-            vocab_size, encoder_output_size, attention_heads, linear_units,
+            num_classes, #vocab_size, 
+            feat_in, #encoder_output_size, 
+            attention_heads, linear_units,
             num_blocks, dropout_rate, positional_dropout_rate,
             self_attention_dropout_rate, src_attention_dropout_rate,
             input_layer, use_output_layer, normalize_before, concat_after)
 
         self.right_decoder = TransformerDecoder(
-            vocab_size, encoder_output_size, attention_heads, linear_units,
+            num_classes, #vocab_size, 
+            feat_in, #encoder_output_size, 
+            attention_heads, linear_units,
             r_num_blocks, dropout_rate, positional_dropout_rate,
             self_attention_dropout_rate, src_attention_dropout_rate,
             input_layer, use_output_layer, normalize_before, concat_after)
@@ -264,9 +270,9 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         Returns:
             (tuple): tuple containing:
                 x: decoded token score before softmax (batch, maxlen_out,
-                    vocab_size) if use_output_layer is True,
+                    num_classes=vocab_size) if use_output_layer is True,
                 r_x: x: decoded token score (right to left decoder)
-                    before softmax (batch, maxlen_out, vocab_size)
+                    before softmax (batch, maxlen_out, num_classes=vocab_size)
                     if use_output_layer is True,
                 olens: (batch, )
         """

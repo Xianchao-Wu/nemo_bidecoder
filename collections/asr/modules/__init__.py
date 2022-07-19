@@ -23,6 +23,8 @@ from nemo.collections.asr.modules.conformer_encoder import ConformerEncoder
 from nemo.collections.asr.modules.lstm_decoder import LSTMDecoder
 from nemo.collections.asr.modules.rnnt import RNNTDecoder, RNNTJoint
 
+from nemo.collections.asr.modules.transformer_decoder import TransformerDecoder, BiTransformerDecoder
+
 # TODO @blisc: Perhaps refactor instead of import guarding
 try:
     from nemo.collections.asr.modules.conv_asr import (
