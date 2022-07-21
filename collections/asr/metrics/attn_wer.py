@@ -21,7 +21,7 @@ from torchmetrics import Metric
 from nemo.collections.asr.parts.utils.rnnt_utils import Hypothesis
 from nemo.utils import logging
 
-__all__ = ['word_error_rate', 'WER', 'move_dimension_to_the_front']
+__all__ = ['word_error_rate', 'ATTNWER', 'move_dimension_to_the_front']
 
 
 def word_error_rate(hypotheses: List[str], references: List[str], use_cer=False) -> float:
@@ -65,7 +65,7 @@ def move_dimension_to_the_front(tensor, dim_index):
     return tensor.permute(*([dim_index] + all_dims[:dim_index] + all_dims[dim_index + 1 :]))
 
 
-class WER(Metric):
+class ATTNWER(Metric):
     """
     This metric computes numerator and denominator for Overall Word Error Rate (WER) between prediction and reference
     texts. When doing distributed training/evaluation the result of ``res=WER(predictions, targets, target_lengths)``

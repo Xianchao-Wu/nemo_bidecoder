@@ -27,6 +27,8 @@ from nemo.collections.asr.utils.mask import (subsequent_mask, make_pad_mask)
 from nemo.core.classes.exportable import Exportable
 from nemo.core.classes.module import NeuralModule
 
+from omegaconf.listconfig import ListConfig
+
 __all__ = ['TransformerDecoder', 'BiTransformerDecoder']
 
 
@@ -229,10 +231,23 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         use_output_layer: bool = True,
         normalize_before: bool = True,
         concat_after: bool = False,
+        #vocabulary: list = None,
+        vocabulary: ListConfig = None,
     ):
 
         assert check_argument_types()
         super().__init__()
+        
+        if vocabulary is not None:
+            if num_classes != len(vocabulary):
+                raise ValueError(
+                    f"If vocabulary is specified, it's length should = num_classes. "
+                    f"Instead got: num_classes={num_classes} and len(vocabulary)={len(vocabulary)}"
+                )
+            self.__vocabulary = vocabulary
+        self._feat_in = feat_in
+        self._num_classes = num_classes + 1 # TODO num_classes already has ' '(space)... 
+
         self.left_decoder = TransformerDecoder(
             num_classes, #vocab_size, 
             feat_in, #encoder_output_size, 
@@ -308,3 +323,16 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         """
         return self.left_decoder.forward_one_step(memory, memory_mask, tgt,
                                                   tgt_mask, cache)
+    
+    def input_example(self, max_batch=1, max_dim=256):
+        input_example = torch.randn(max_batch, self._feat_in, max_dim).to(next(self.parameters()).device)
+        return tuple([input_example])
+
+    @property
+    def vocabulary(self):
+        return self.__vocabulary
+    
+    @property
+    def num_classes_with_blank(self):
+        return self._num_classes
+

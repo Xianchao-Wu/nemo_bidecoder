@@ -164,14 +164,15 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             self.world_size = trainer.world_size
 
         super().__init__(cfg=cfg, trainer=trainer)
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         self.preprocessor = EncDecCTCAttnModel.from_config_dict(self._cfg.preprocessor)
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         self.encoder = EncDecCTCAttnModel.from_config_dict(self._cfg.encoder)
 
         with open_dict(self._cfg):
             if "feat_in" not in self._cfg.decoder or (
-                not self._cfg.decoder.feat_in and hasattr(self.encoder, '_feat_out')
+                (not self._cfg.decoder.feat_in or self._cfg.decoder.feat_in == -1)
+                and hasattr(self.encoder, '_feat_out')
             ):
                 self._cfg.decoder.feat_in = self.encoder._feat_out
             if "feat_in" not in self._cfg.decoder or not self._cfg.decoder.feat_in:
@@ -185,10 +186,10 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 )
                 cfg.decoder["num_classes"] = len(self.cfg.decoder.vocabulary)
 
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         self.decoder = EncDecCTCAttnModel.from_config_dict(self._cfg.decoder)
 
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         self.loss = CTCLoss(
             num_classes=self.decoder.num_classes_with_blank - 1,
             zero_infinity=True,
@@ -204,7 +205,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             normalize_length=self._cfg.get('length_normalized_loss', False), # TODO
         )
 
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         if hasattr(self._cfg, 'spec_augment') and self._cfg.spec_augment is not None:
             self.spec_augmentation = EncDecCTCAttnModel.from_config_dict(self._cfg.spec_augment)
         else:
@@ -247,7 +248,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         Returns:
             A list of transcriptions (or raw log probabilities if logprobs is True) in the same order as paths2audio_files
         """
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
         if paths2audio_files is None or len(paths2audio_files) == 0:
             return {}
 
@@ -356,13 +357,25 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             new_decoder_config['num_classes'] = len(new_vocabulary)
 
             del self.decoder
-            self.decoder = EncDecCTCModel.from_config_dict(new_decoder_config)
+            self.decoder = EncDecCTCAttnModel.from_config_dict(new_decoder_config)
+
             del self.loss
             self.loss = CTCLoss(
                 num_classes=self.decoder.num_classes_with_blank - 1,
                 zero_infinity=True,
                 reduction=self._cfg.get("ctc_reduction", "mean_batch"),
             )
+
+            del self.criterion_att
+            self.criterion_att = LabelSmoothingLoss(
+                size=self.decoder.num_classes_with_blank - 1, # TODO
+                padding_idx=IGNORE_ID, #ignore_id, # TODO
+                #smoothing=self.cfg.model.lsm_weight, # TODO, use 'cfg' or '_cfg'?
+                smoothing=self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
+                #normalize_length=self.cfg.model.length_normalized_loss, # TODO
+                normalize_length=self._cfg.get('length_normalized_loss', False), # TODO
+            )
+
             self._wer = WER(
                 vocabulary=self.decoder.vocabulary,
                 batch_dim_index=0,
@@ -579,7 +592,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             2) The lengths of the acoustic sequence after propagation through the encoder, of shape [B].
             3) The greedy token predictions of the model of shape [B, T] (via argmax)
         """
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
         has_input_signal = input_signal is not None and input_signal_length is not None
         has_processed_signal = processed_signal is not None and processed_signal_length is not None
         if (has_input_signal ^ has_processed_signal) == False:
@@ -599,13 +612,13 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
         log_probs = self.decoder(encoder_output=encoded)
         greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
 
         return log_probs, encoded_len, greedy_predictions
 
     # PTL-specific methods
     def training_step(self, batch, batch_nb):
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
         signal, signal_len, transcript, transcript_len = batch
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
             log_probs, encoded_len, predictions = self.forward(
@@ -639,7 +652,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         return {'loss': loss_value, 'log': tensorboard_logs}
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
         signal, signal_len, transcript, transcript_len, sample_id = batch
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
             log_probs, encoded_len, predictions = self.forward(
@@ -656,7 +669,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         return list(zip(sample_id, transcribed_texts))
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
         signal, signal_len, transcript, transcript_len = batch
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
             log_probs, encoded_len, predictions = self.forward(
@@ -681,7 +694,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         }
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
         logs = self.validation_step(batch, batch_idx, dataloader_idx=dataloader_idx)
         test_logs = {
             'test_loss': logs['val_loss'],

@@ -891,7 +891,7 @@ class ModelPT(LightningModule, Model):
         if sum(arg_matches) == 0:
             # model weights do not need to be restored
             return
-
+        # TODO nice method, need to learn later~~~
         if sum(arg_matches) > 1:
             raise ValueError(
                 f"Cannot pass more than one model initialization arguments to config!\n"

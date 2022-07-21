@@ -19,6 +19,7 @@ try:
     from nemo.collections.asr.models.clustering_diarizer import ClusteringDiarizer
     from nemo.collections.asr.models.ctc_bpe_models import EncDecCTCModelBPE
     from nemo.collections.asr.models.ctc_models import EncDecCTCModel
+    from nemo.collections.asr.models.attn_models import EncDecCTCAttnModel
     from nemo.collections.asr.models.label_models import EncDecSpeakerLabelModel
     from nemo.collections.asr.models.rnnt_bpe_models import EncDecRNNTBPEModel
     from nemo.collections.asr.models.rnnt_models import EncDecRNNTModel
