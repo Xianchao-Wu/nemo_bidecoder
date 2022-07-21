@@ -217,7 +217,7 @@ class BiTransformerDecoder(NeuralModule, Exportable):
     """
     def __init__(
         self,
-        num_classes: int, #vocab_size: int,
+        num_classes: int, #vocab_size+1: int,
         feat_in: int, #encoder_output_size: int,
         attention_heads: int = 4,
         linear_units: int = 2048,
@@ -239,14 +239,14 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         super().__init__()
         
         if vocabulary is not None:
-            if num_classes != len(vocabulary):
+            if num_classes != len(vocabulary) + 1: # TODO 
                 raise ValueError(
-                    f"If vocabulary is specified, it's length should = num_classes. "
+                    f"If vocabulary is specified, it's length+1 should = num_classes. "
                     f"Instead got: num_classes={num_classes} and len(vocabulary)={len(vocabulary)}"
                 )
             self.__vocabulary = vocabulary
         self._feat_in = feat_in
-        self._num_classes = num_classes + 1 # TODO num_classes already has ' '(space)... 
+        self._num_classes = num_classes #3606 already, don't + 1. id=3605 for eos=sos  
 
         self.left_decoder = TransformerDecoder(
             num_classes, #vocab_size, 
@@ -285,9 +285,9 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         Returns:
             (tuple): tuple containing:
                 x: decoded token score before softmax (batch, maxlen_out,
-                    num_classes=vocab_size) if use_output_layer is True,
+                    num_classes=vocab_size+1) if use_output_layer is True,
                 r_x: x: decoded token score (right to left decoder)
-                    before softmax (batch, maxlen_out, num_classes=vocab_size)
+                    before softmax (batch, maxlen_out, num_classes=vocab_size+1)
                     if use_output_layer is True,
                 olens: (batch, )
         """
@@ -334,5 +334,5 @@ class BiTransformerDecoder(NeuralModule, Exportable):
     
     @property
     def num_classes_with_blank(self):
-        return self._num_classes
+        return self._num_classes # 3606; id=3605 is for sos/eos
 

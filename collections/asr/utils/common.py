@@ -87,7 +87,7 @@ def add_sos_eos(ys_pad: torch.Tensor, sos: int, eos: int,
 
 def reverse_pad_list(ys_pad: torch.Tensor,
                      ys_lens: torch.Tensor,
-                     pad_value: float = -1.0) -> torch.Tensor:
+                     pad_value: int = IGNORE_ID) -> torch.Tensor:
     """Reverse padding for the list of tensors.
 
     Args:

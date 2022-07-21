@@ -185,11 +185,11 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
             if self.cfg.decoder.num_classes < 1 and self.cfg.decoder.vocabulary is not None:
                 logging.info(
-                    "\nReplacing placeholder number of classes ({}) with actual number of classes - {}".format(
+                    "\nReplacing placeholder number of classes ({}) with actual number of classes - {}+1".format(
                         self.cfg.decoder.num_classes, len(self.cfg.decoder.vocabulary)
                     )
                 )
-                cfg.decoder["num_classes"] = len(self.cfg.decoder.vocabulary)
+                cfg.decoder["num_classes"] = len(self.cfg.decoder.vocabulary) + 1 # TODO for sos/eos
 
         #import ipdb; ipdb.set_trace()
         self.decoder = EncDecCTCAttnModel.from_config_dict(self._cfg.decoder)
@@ -208,10 +208,10 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         #    zero_infinity=True,
         #    reduction=self._cfg.get("ctc_reduction", "mean_batch"),
         #)
-        self.ctc = CTC(self.decoder.num_classes_with_blank - 1, self.encoder._feat_out)
+        self.ctc = CTC(self.decoder.num_classes_with_blank, self.encoder._feat_out)
 
         self.criterion_att = LabelSmoothingLoss(
-            size = self.decoder.num_classes_with_blank - 1, # TODO
+            size = self.decoder.num_classes_with_blank, #- 1, # TODO
             padding_idx = self.ignore_id, # TODO
             #smoothing=self.cfg.model.lsm_weight, # TODO, use 'cfg' or '_cfg'?
             smoothing = self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
@@ -368,7 +368,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             decoder_config = self.decoder.to_config_dict()
             new_decoder_config = copy.deepcopy(decoder_config)
             new_decoder_config['vocabulary'] = new_vocabulary
-            new_decoder_config['num_classes'] = len(new_vocabulary)
+            new_decoder_config['num_classes'] = len(new_vocabulary) + 1 # TODO for sos/eos
 
             del self.decoder
             self.decoder = EncDecCTCAttnModel.from_config_dict(new_decoder_config)
@@ -497,10 +497,10 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         """
         if 'shuffle' not in train_data_config:
             train_data_config['shuffle'] = True
-
+        #import ipdb; ipdb.set_trace()
         # preserve config
         self._update_dataset_config(dataset_name='train', config=train_data_config)
-
+        #import ipdb; ipdb.set_trace()
         self._train_dl = self._setup_dataloader_from_config(config=train_data_config)
 
         # Need to set this because if using an IterableDataset, the length of the dataloader is the total number
@@ -641,14 +641,16 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
         # 1. encoder
         encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
-        encoded_out_mask = ~make_pad_mask(encoded_len)
-        
+        encoded = encoded.transpose(1, 2) # from (batch, hidden dim, length) to (batch, length, hidden dim)
+        encoded_out_mask = ~make_pad_mask(encoded_len).unsqueeze(1) # (batch, 1, hidden dim)
+        import ipdb; ipdb.set_trace() 
         # 2a. attention-decoder branch
         if self.ctc_weight != 1.0:
             loss_att, acc_att = self._calc_att_loss(encoded, encoded_out_mask, text, text_lengths)
         else:
             loss_att = None
-        
+       
+        import ipdb; ipdb.set_trace()
         # 2b. ctc branch
         if self.ctc_weight != 0.0:
             loss_ctc = self.ctc(encoded, encoded_len, text, text_lengths)      
@@ -662,6 +664,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         else:
             loss = self.ctc_weight * loss_ctc + (1 - self.ctc_weight) * loss_att
 
+        import ipdb; ipdb.set_trace()
         return loss, loss_att, loss_ctc
 
         #log_probs = self.decoder(encoder_output=encoded)
@@ -686,11 +689,13 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         r_ys_in_pad, r_ys_out_pad = add_sos_eos(r_ys_pad, self.sos, self.eos,
                                                 self.ignore_id)
         # 1. Forward decoder
+        import ipdb; ipdb.set_trace()
         decoder_out, r_decoder_out, _ = self.decoder(encoder_out, encoder_mask,
                                                      ys_in_pad, ys_in_lens,
                                                      r_ys_in_pad,
                                                      self.reverse_weight)
         # 2. Compute attention loss
+        import ipdb; ipdb.set_trace()
         loss_att = self.criterion_att(decoder_out, ys_out_pad)
         r_loss_att = torch.tensor(0.0)
         if self.reverse_weight > 0.0:
@@ -702,6 +707,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             ys_out_pad,
             ignore_label=self.ignore_id,
         )
+        import ipdb; ipdb.set_trace()
         return loss_att, acc_att
 
 
