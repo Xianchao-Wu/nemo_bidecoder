@@ -16,7 +16,7 @@ import json
 import os
 import tempfile
 from math import ceil
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Tuple
 
 import torch
 from omegaconf import DictConfig, OmegaConf, open_dict
@@ -26,17 +26,22 @@ from tqdm.auto import tqdm
 
 from nemo.collections.asr.data import audio_to_text_dataset
 from nemo.collections.asr.data.audio_to_text_dali import DALIOutputs
-from nemo.collections.asr.losses.ctc import CTCLoss
+#from nemo.collections.asr.losses.ctc import CTCLoss
+from nemo.collections.asr.losses.attn_ctc import CTC # from wenet
 from nemo.collections.asr.metrics.wer import WER
 from nemo.collections.asr.models.asr_model import ASRModel, ExportableEncDecModel
 from nemo.collections.asr.parts.mixins import ASRModuleMixin
 from nemo.collections.asr.parts.preprocessing.perturb import process_augmentations
 
-from nemo.collections.asr.utils.common import IGNORE_ID
-from nemo.collections.asr.modules.label_smoothing_loss import LabelSmoothingLoss
-
+from nemo.collections.asr.utils.common import (IGNORE_ID, add_sos_eos, log_add,
+                                               remove_duplicates_and_blank, th_accuracy,
+                                               reverse_pad_list) # from wenet
+from nemo.collections.asr.modules.label_smoothing_loss import LabelSmoothingLoss # from wenet
+from nemo.collections.asr.utils.mask import make_pad_mask # from wenet
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
-from nemo.core.neural_types import AudioSignal, LabelsType, LengthsType, LogprobsType, NeuralType, SpectrogramType
+from nemo.core.neural_types import (AudioSignal, LabelsType, LengthsType, 
+        LogprobsType, NeuralType, SpectrogramType,
+        LossType, ElementType)
 from nemo.utils import logging
 
 __all__ = ['EncDecCTCAttnModel']
@@ -189,20 +194,29 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         #import ipdb; ipdb.set_trace()
         self.decoder = EncDecCTCAttnModel.from_config_dict(self._cfg.decoder)
 
+        self.ctc_weight = self._cfg.get('ctc_weight', 0.0)
+        self.reverse_weight = self._cfg.get('reverse_weight', 0.0)
+        self.sos = self.decoder.num_classes_with_blank - 1 # 3606 - 1 = 3605
+        self.eos = self.decoder.num_classes_with_blank - 1 # 3605 - 1 = 3605
+        self.ignore_id = IGNORE_ID
+        #self.sos = self.cfg.decoder.num_classes - 1
+        #self.eos = self.cfg.decoder.num_classes - 1
+
         #import ipdb; ipdb.set_trace()
-        self.loss = CTCLoss(
-            num_classes=self.decoder.num_classes_with_blank - 1,
-            zero_infinity=True,
-            reduction=self._cfg.get("ctc_reduction", "mean_batch"),
-        )
+        #self.loss = CTCLoss(
+        #    num_classes=self.decoder.num_classes_with_blank - 1,
+        #    zero_infinity=True,
+        #    reduction=self._cfg.get("ctc_reduction", "mean_batch"),
+        #)
+        self.ctc = CTC(self.decoder.num_classes_with_blank - 1, self.encoder._feat_out)
 
         self.criterion_att = LabelSmoothingLoss(
-            size=self.decoder.num_classes_with_blank - 1, # TODO
-            padding_idx=IGNORE_ID, #ignore_id, # TODO
+            size = self.decoder.num_classes_with_blank - 1, # TODO
+            padding_idx = self.ignore_id, # TODO
             #smoothing=self.cfg.model.lsm_weight, # TODO, use 'cfg' or '_cfg'?
-            smoothing=self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
+            smoothing = self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
             #normalize_length=self.cfg.model.length_normalized_loss, # TODO
-            normalize_length=self._cfg.get('length_normalized_loss', False), # TODO
+            normalize_length = self._cfg.get('length_normalized_loss', False), # TODO
         )
 
         #import ipdb; ipdb.set_trace()
@@ -359,21 +373,23 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             del self.decoder
             self.decoder = EncDecCTCAttnModel.from_config_dict(new_decoder_config)
 
-            del self.loss
-            self.loss = CTCLoss(
-                num_classes=self.decoder.num_classes_with_blank - 1,
-                zero_infinity=True,
-                reduction=self._cfg.get("ctc_reduction", "mean_batch"),
-            )
+            #del self.loss
+            #self.loss = CTCLoss(
+            #    num_classes=self.decoder.num_classes_with_blank - 1,
+            #    zero_infinity=True,
+            #    reduction=self._cfg.get("ctc_reduction", "mean_batch"),
+            #)
+            del self.ctc
+            self.ctc = CTC(self.decoder.num_classes_with_blank - 1, self.encoder._feat_out)
 
             del self.criterion_att
             self.criterion_att = LabelSmoothingLoss(
-                size=self.decoder.num_classes_with_blank - 1, # TODO
-                padding_idx=IGNORE_ID, #ignore_id, # TODO
+                size = self.decoder.num_classes_with_blank - 1, # TODO
+                padding_idx = self.ignore_id, # TODO
                 #smoothing=self.cfg.model.lsm_weight, # TODO, use 'cfg' or '_cfg'?
-                smoothing=self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
+                smoothing = self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
                 #normalize_length=self.cfg.model.length_normalized_loss, # TODO
-                normalize_length=self._cfg.get('length_normalized_loss', False), # TODO
+                normalize_length = self._cfg.get('length_normalized_loss', False), # TODO
             )
 
             self._wer = WER(
@@ -558,20 +574,32 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             "processed_signal": NeuralType(('B', 'D', 'T'), SpectrogramType(), optional=True),
             "processed_signal_length": NeuralType(tuple('B'), LengthsType(), optional=True),
             "sample_id": NeuralType(tuple('B'), LengthsType(), optional=True),
+            "text": NeuralType(('B', 'T'), LabelsType(), optional=False),
+            "text_lengths": NeuralType(tuple('B'), LengthsType(), optional=False)
         }
 
     @property
-    def output_types(self) -> Optional[Dict[str, NeuralType]]:
+    def output_types(self) -> Optional[Dict[str, ElementType]]:
         return {
-            "outputs": NeuralType(('B', 'T', 'D'), LogprobsType()),
-            "encoded_lengths": NeuralType(tuple('B'), LengthsType()),
-            "greedy_predictions": NeuralType(('B', 'T'), LabelsType()),
+            #"outputs": NeuralType(('B', 'T', 'D'), LogprobsType()),
+            #"encoded_lengths": NeuralType(tuple('B'), LengthsType()),
+            #"greedy_predictions": NeuralType(('B', 'T'), LabelsType()),
+            #return loss, loss_att, loss_ctc
+            "loss": LossType(),
+            "loss_att": LossType(),
+            "loss_ctc": LossType(),
         }
 
     @typecheck()
     def forward(
-        self, input_signal=None, input_signal_length=None, processed_signal=None, processed_signal_length=None
-    ):
+        self, 
+        input_signal: torch.Tensor = None, 
+        input_signal_length: torch.Tensor = None, 
+        processed_signal: torch.Tensor = None, 
+        processed_signal_length: torch.Tensor = None,
+        text: torch.Tensor = None, 
+        text_lengths: torch.Tensor = None
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Forward pass of the model.
 
@@ -585,6 +613,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 of shape (B, D, T) that has undergone processing via some DALI preprocessor.
             processed_signal_length: Vector of length B, that contains the individual lengths of the
                 processed audio sequences.
+            text: reference text, (Batch, Length) of token ids.
+            text_lengths: length list of reference text, (Batch,)
 
         Returns:
             A tuple of 3 elements -
@@ -609,47 +639,114 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         if self.spec_augmentation is not None and self.training:
             processed_signal = self.spec_augmentation(input_spec=processed_signal, length=processed_signal_length)
 
+        # 1. encoder
         encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
-        log_probs = self.decoder(encoder_output=encoded)
-        greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
-        import ipdb; ipdb.set_trace()
+        encoded_out_mask = ~make_pad_mask(encoded_len)
+        
+        # 2a. attention-decoder branch
+        if self.ctc_weight != 1.0:
+            loss_att, acc_att = self._calc_att_loss(encoded, encoded_out_mask, text, text_lengths)
+        else:
+            loss_att = None
+        
+        # 2b. ctc branch
+        if self.ctc_weight != 0.0:
+            loss_ctc = self.ctc(encoded, encoded_len, text, text_lengths)      
+        else:
+            loss_ctc = None
 
-        return log_probs, encoded_len, greedy_predictions
+        if loss_ctc is None:
+            loss = loss_att
+        elif loss_att is None:
+            loss = loss_ctc
+        else:
+            loss = self.ctc_weight * loss_ctc + (1 - self.ctc_weight) * loss_att
+
+        return loss, loss_att, loss_ctc
+
+        #log_probs = self.decoder(encoder_output=encoded)
+        #greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
+        #import ipdb; ipdb.set_trace()
+
+        #return log_probs, encoded_len, greedy_predictions
+
+    def _calc_att_loss(
+        self,
+        encoder_out: torch.Tensor,
+        encoder_mask: torch.Tensor,
+        ys_pad: torch.Tensor,
+        ys_pad_lens: torch.Tensor,
+    ) -> Tuple[torch.Tensor, float]:
+        ys_in_pad, ys_out_pad = add_sos_eos(ys_pad, self.sos, self.eos,
+                                            self.ignore_id)
+        ys_in_lens = ys_pad_lens + 1
+
+        # reverse the seq, used for right to left decoder
+        r_ys_pad = reverse_pad_list(ys_pad, ys_pad_lens, float(self.ignore_id))
+        r_ys_in_pad, r_ys_out_pad = add_sos_eos(r_ys_pad, self.sos, self.eos,
+                                                self.ignore_id)
+        # 1. Forward decoder
+        decoder_out, r_decoder_out, _ = self.decoder(encoder_out, encoder_mask,
+                                                     ys_in_pad, ys_in_lens,
+                                                     r_ys_in_pad,
+                                                     self.reverse_weight)
+        # 2. Compute attention loss
+        loss_att = self.criterion_att(decoder_out, ys_out_pad)
+        r_loss_att = torch.tensor(0.0)
+        if self.reverse_weight > 0.0:
+            r_loss_att = self.criterion_att(r_decoder_out, r_ys_out_pad)
+        loss_att = loss_att * (
+            1 - self.reverse_weight) + r_loss_att * self.reverse_weight
+        acc_att = th_accuracy(
+            decoder_out.view(-1, self.vocab_size),
+            ys_out_pad,
+            ignore_label=self.ignore_id,
+        )
+        return loss_att, acc_att
+
 
     # PTL-specific methods
     def training_step(self, batch, batch_nb):
         import ipdb; ipdb.set_trace()
         signal, signal_len, transcript, transcript_len = batch
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
-            log_probs, encoded_len, predictions = self.forward(
-                processed_signal=signal, processed_signal_length=signal_len
+            loss, loss_attn, loss_ctc = self.forward(
+                processed_signal=signal, processed_signal_length=signal_len,
+                text=transcript, text_lengths=transcript_len
             )
         else:
-            log_probs, encoded_len, predictions = self.forward(input_signal=signal, input_signal_length=signal_len)
+            #log_probs, encoded_len, predictions = self.forward(input_signal=signal, input_signal_length=signal_len)
+            loss, loss_attn, loss_ctc = self.forward(
+                input_signal=signal, input_signal_length=signal_len,
+                text=transcript, text_lengths=transcript_len
+            )
 
-        loss_value = self.loss(
-            log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
-        )
+        #loss_value = self.loss(
+        #    log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
+        #)
 
-        tensorboard_logs = {'train_loss': loss_value, 'learning_rate': self._optimizer.param_groups[0]['lr']}
+        tensorboard_logs = {'train_loss': loss, 
+                'train_loss_attn': loss_attn,
+                'train_loss_ctc': loss_ctc,
+                'learning_rate': self._optimizer.param_groups[0]['lr']}
 
         if hasattr(self, '_trainer') and self._trainer is not None:
             log_every_n_steps = self._trainer.log_every_n_steps
         else:
             log_every_n_steps = 1
 
-        if (batch_nb + 1) % log_every_n_steps == 0:
-            self._wer.update(
-                predictions=predictions,
-                targets=transcript,
-                target_lengths=transcript_len,
-                predictions_lengths=encoded_len,
-            )
-            wer, _, _ = self._wer.compute()
-            self._wer.reset()
-            tensorboard_logs.update({'training_batch_wer': wer})
+        #if (batch_nb + 1) % log_every_n_steps == 0:
+        #    self._wer.update(
+        #        predictions=predictions,
+        #        targets=transcript,
+        #        target_lengths=transcript_len,
+        #        predictions_lengths=encoded_len,
+        #    )
+        #    wer, _, _ = self._wer.compute()
+        #    self._wer.reset()
+        #    tensorboard_logs.update({'training_batch_wer': wer})
 
-        return {'loss': loss_value, 'log': tensorboard_logs}
+        return {'loss': loss, 'log': tensorboard_logs}
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         import ipdb; ipdb.set_trace()

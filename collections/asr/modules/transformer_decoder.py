@@ -75,7 +75,7 @@ class TransformerDecoder(NeuralModule, Exportable):
 
         if input_layer == "embed":
             self.embed = torch.nn.Sequential(
-                torch.nn.Embedding(num_classes, #vocab_size, 
+                torch.nn.Embedding(num_classes + 1, #vocab_size, TODO num_classes or num_classes+1 (for sos/eos)? 
                     attention_dim),
                 PositionalEncoding(attention_dim, positional_dropout_rate),
             )
