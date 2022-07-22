@@ -41,8 +41,8 @@ from nemo.collections.asr.modules.label_smoothing_loss import LabelSmoothingLoss
 from nemo.collections.asr.utils.mask import make_pad_mask # from wenet
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.neural_types import (AudioSignal, LabelsType, LengthsType, 
-        LogprobsType, NeuralType, SpectrogramType,
-        LossType, ElementType)
+                                    LogprobsType, NeuralType, SpectrogramType,
+                                    LossType, ElementType)
 from nemo.utils import logging
 
 __all__ = ['EncDecCTCAttnModel']
@@ -229,7 +229,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             self.spec_augmentation = None
 
         # Setup metric objects
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         self._wer = WER(
             vocabulary=self.decoder.vocabulary,
             batch_dim_index=0,
@@ -580,18 +580,19 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             "text": NeuralType(('B', 'T'), LabelsType(), optional=False),
             "text_lengths": NeuralType(tuple('B'), LengthsType(), optional=False)
         }
-
-    @property
-    def output_types(self) -> Optional[Dict[str, ElementType]]:
-        return {
-            #"outputs": NeuralType(('B', 'T', 'D'), LogprobsType()),
-            #"encoded_lengths": NeuralType(tuple('B'), LengthsType()),
-            #"greedy_predictions": NeuralType(('B', 'T'), LabelsType()),
-            #return loss, loss_att, loss_ctc
-            "loss": LossType(),
-            "loss_att": LossType(),
-            "loss_ctc": LossType(),
-        }
+    # TODO do not understand...
+    #@property
+    #def output_types(self) -> Optional[Dict[str, ElementType]]:
+    #    return {
+    #        #"outputs": NeuralType(('B', 'T', 'D'), LogprobsType()),
+    #        #"encoded_lengths": NeuralType(tuple('B'), LengthsType()),
+    #        #"greedy_predictions": NeuralType(('B', 'T'), LabelsType()),
+    #        #return loss, loss_att, loss_ctc, acc_att
+    #        "loss": LossType(),
+    #        "loss_att": LossType(),
+    #        "loss_ctc": LossType(),
+    #        "acc_att": LossType(),
+    #    }
 
     @typecheck()
     def forward(
@@ -602,7 +603,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         processed_signal_length: torch.Tensor = None,
         text: torch.Tensor = None, 
         text_lengths: torch.Tensor = None
-    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        #) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Forward pass of the model.
 
@@ -625,7 +627,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             2) The lengths of the acoustic sequence after propagation through the encoder, of shape [B].
             3) The greedy token predictions of the model of shape [B, T] (via argmax)
         """
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         has_input_signal = input_signal is not None and input_signal_length is not None
         has_processed_signal = processed_signal is not None and processed_signal_length is not None
         if (has_input_signal ^ has_processed_signal) == False:
@@ -646,14 +648,15 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
         encoded = encoded.transpose(1, 2) # from (batch, hidden dim, length) to (batch, length, hidden dim)
         encoded_out_mask = ~make_pad_mask(encoded_len).unsqueeze(1) # (batch, 1, hidden dim)
-        import ipdb; ipdb.set_trace() 
+        #import ipdb; ipdb.set_trace() 
         # 2a. attention-decoder branch
+        acc_att = 0.0 # accuracy from attention decoder
         if self.ctc_weight != 1.0:
             loss_att, acc_att = self._calc_att_loss(encoded, encoded_out_mask, text, text_lengths)
         else:
             loss_att = None
        
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         # 2b. ctc branch
         if self.ctc_weight != 0.0:
             loss_ctc = self.ctc(encoded, encoded_len, text, text_lengths)      
@@ -667,8 +670,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         else:
             loss = self.ctc_weight * loss_ctc + (1 - self.ctc_weight) * loss_att
 
-        import ipdb; ipdb.set_trace()
-        return loss, loss_att, loss_ctc
+        #import ipdb; ipdb.set_trace()
+        return loss, loss_att, loss_ctc, acc_att
 
         #log_probs = self.decoder(encoder_output=encoded)
         #greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
@@ -692,13 +695,13 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         r_ys_in_pad, r_ys_out_pad = add_sos_eos(r_ys_pad, self.sos, self.eos,
                                                 self.ignore_id)
         # 1. Forward decoder
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         decoder_out, r_decoder_out, _ = self.decoder(encoder_out, encoder_mask,
                                                      ys_in_pad, ys_in_lens,
                                                      r_ys_in_pad,
                                                      self.reverse_weight)
         # 2. Compute attention loss
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         loss_att = self.criterion_att(decoder_out, ys_out_pad)
         r_loss_att = torch.tensor(0.0)
         if self.reverse_weight > 0.0:
@@ -710,25 +713,25 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             ys_out_pad,
             ignore_label=self.ignore_id,
         )
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         return loss_att, acc_att
 
 
     # PTL-specific methods
     def training_step(self, batch, batch_nb):
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         signal, signal_len, transcript, transcript_len = batch
         # use -1 to pad transcript_len! (was 0 for padding)
         transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
 
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
-            loss, loss_attn, loss_ctc = self.forward(
+            loss, loss_attn, loss_ctc, acc_att = self.forward(
                 processed_signal=signal, processed_signal_length=signal_len,
                 text=transcript, text_lengths=transcript_len
             )
         else:
             #log_probs, encoded_len, predictions = self.forward(input_signal=signal, input_signal_length=signal_len)
-            loss, loss_attn, loss_ctc = self.forward(
+            loss, loss_attn, loss_ctc, acc_att = self.forward(
                 input_signal=signal, input_signal_length=signal_len,
                 text=transcript, text_lengths=transcript_len
             )
@@ -740,6 +743,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         tensorboard_logs = {'train_loss': loss, 
                 'train_loss_attn': loss_attn,
                 'train_loss_ctc': loss_ctc,
+                'accuracy_attention': acc_att,
                 'learning_rate': self._optimizer.param_groups[0]['lr']}
 
         if hasattr(self, '_trainer') and self._trainer is not None:
@@ -778,38 +782,56 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         return list(zip(sample_id, transcribed_texts))
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         signal, signal_len, transcript, transcript_len = batch
+        # use -1 to pad transcript_len! (was 0 for padding)
+        transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
+
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
-            log_probs, encoded_len, predictions = self.forward(
-                processed_signal=signal, processed_signal_length=signal_len
+            #log_probs, encoded_len, predictions = self.forward(
+            #    processed_signal=signal, processed_signal_length=signal_len
+            #)
+            loss, loss_attn, loss_ctc, acc_att = self.forward(
+                processed_signal=signal, processed_signal_length=signal_len,
+                text=transcript, text_lengths=transcript_len
             )
         else:
-            log_probs, encoded_len, predictions = self.forward(input_signal=signal, input_signal_length=signal_len)
+            #log_probs, encoded_len, predictions = self.forward(input_signal=signal, input_signal_length=signal_len)
+            loss, loss_attn, loss_ctc, acc_att = self.forward(
+                input_signal=signal, input_signal_length=signal_len,
+                text=transcript, text_lengths=transcript_len
+            )
 
-        loss_value = self.loss(
-            log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
-        )
-        self._wer.update(
-            predictions=predictions, targets=transcript, target_lengths=transcript_len, predictions_lengths=encoded_len
-        )
-        wer, wer_num, wer_denom = self._wer.compute()
-        self._wer.reset()
+        #loss_value = self.loss(
+        #    log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
+        #)
+        #self._wer.update(
+        #    predictions=predictions, targets=transcript, 
+        #    target_lengths=transcript_len, predictions_lengths=encoded_len
+        #)
+        #wer, wer_num, wer_denom = self._wer.compute()
+        #self._wer.reset()
         return {
-            'val_loss': loss_value,
-            'val_wer_num': wer_num,
-            'val_wer_denom': wer_denom,
-            'val_wer': wer,
+            'val_loss': loss, #_value, # linear combination of "loss_attn" and "loss_ctc"
+            'val_loss_attn': loss_attn, # bi-decoder attention loss
+            'val_loss_ctc': loss_ctc, # ctc loss
+            'val_wer_num': 0.0, #wer_num,
+            'val_wer_denom': 0.0, #wer_denom,
+            'val_wer': 0.0, #wer,
+            'val_acc': acc_att,
         }
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         logs = self.validation_step(batch, batch_idx, dataloader_idx=dataloader_idx)
         test_logs = {
             'test_loss': logs['val_loss'],
+            'test_loss_attn': logs['val_loss_attn'],
+            'test_loss_ctc': logs['val_loss_ctc'],
             'test_wer_num': logs['val_wer_num'],
             'test_wer_denom': logs['val_wer_denom'],
             'test_wer': logs['val_wer'],
+            'test_acc': logs['val_acc']
         }
         return test_logs
 
