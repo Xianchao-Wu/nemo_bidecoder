@@ -265,7 +265,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         Returns:
             A list of transcriptions (or raw log probabilities if logprobs is True) in the same order as paths2audio_files
         """
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace() # TODO not checked yet
         if paths2audio_files is None or len(paths2audio_files) == 0:
             return {}
 
@@ -765,7 +765,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         return {'loss': loss, 'log': tensorboard_logs}
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace() # TODO not checked yet
         signal, signal_len, transcript, transcript_len, sample_id = batch
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
             log_probs, encoded_len, predictions = self.forward(
@@ -823,6 +823,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         #import ipdb; ipdb.set_trace()
+        # TODO the decoding algorithms can be called here! and do real decoding~~
+        # such as (1) ctc greedy search (2) ctc prefix beam search (3) attention decoder (4) attention rescoring
         logs = self.validation_step(batch, batch_idx, dataloader_idx=dataloader_idx)
         test_logs = {
             'test_loss': logs['val_loss'],
