@@ -815,9 +815,9 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             'val_loss': loss, #_value, # linear combination of "loss_attn" and "loss_ctc"
             'val_loss_attn': loss_attn, # bi-decoder attention loss
             'val_loss_ctc': loss_ctc, # ctc loss
-            'val_wer_num': 0.0, #wer_num,
-            'val_wer_denom': 0.0, #wer_denom,
-            'val_wer': 0.0, #wer,
+            'val_wer_num': torch.FloatTensor([0.0]), #wer_num,
+            'val_wer_denom': torch.FloatTensor([0.0]), #wer_denom,
+            'val_wer': torch.FloatTensor([0.0]), #wer,
             'val_acc': acc_att,
         }
 
