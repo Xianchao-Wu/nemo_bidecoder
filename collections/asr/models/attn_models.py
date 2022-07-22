@@ -19,6 +19,7 @@ from math import ceil
 from typing import Dict, List, Optional, Union, Tuple
 
 import torch
+from torch.nn.utils.rnn import pad_sequence
 from omegaconf import DictConfig, OmegaConf, open_dict
 from pytorch_lightning import Trainer
 from torch.utils.data import ChainDataset
@@ -208,7 +209,9 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         #    zero_infinity=True,
         #    reduction=self._cfg.get("ctc_reduction", "mean_batch"),
         #)
-        self.ctc = CTC(self.decoder.num_classes_with_blank, self.encoder._feat_out)
+        self.ctc = CTC(self.decoder.num_classes_with_blank, 
+            self.encoder._feat_out,
+            normalize_length = self._cfg.get('length_normalized_loss', False))
 
         self.criterion_att = LabelSmoothingLoss(
             size = self.decoder.num_classes_with_blank, #- 1, # TODO
@@ -703,7 +706,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         loss_att = loss_att * (
             1 - self.reverse_weight) + r_loss_att * self.reverse_weight
         acc_att = th_accuracy(
-            decoder_out.view(-1, self.vocab_size),
+            decoder_out.view(-1, self.decoder.num_classes_with_blank), #self.vocab_size),
             ys_out_pad,
             ignore_label=self.ignore_id,
         )
@@ -715,6 +718,9 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
     def training_step(self, batch, batch_nb):
         import ipdb; ipdb.set_trace()
         signal, signal_len, transcript, transcript_len = batch
+        # use -1 to pad transcript_len! (was 0 for padding)
+        transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
+
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
             loss, loss_attn, loss_ctc = self.forward(
                 processed_signal=signal, processed_signal_length=signal_len,

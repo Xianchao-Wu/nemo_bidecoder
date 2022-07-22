@@ -69,7 +69,7 @@ class LabelSmoothingLoss(nn.Module):
         Returns:
             loss (torch.Tensor) : The KL loss, scalar float value
         """
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         assert x.size(2) == self.size
         batch_size = x.size(0)
         x = x.view(-1, self.size)

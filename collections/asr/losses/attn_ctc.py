@@ -11,6 +11,7 @@ class CTC(torch.nn.Module):
         encoder_output_size: int,
         dropout_rate: float = 0.0,
         reduce: bool = True,
+        normalize_length: bool = True
     ):
         """ Construct CTC module
         Args:
@@ -18,6 +19,7 @@ class CTC(torch.nn.Module):
             encoder_output_size: number of encoder projection units
             dropout_rate: dropout rate (0.0 ~ 1.0)
             reduce: reduce the CTC loss into a scalar
+            normalize_length: true=use token.num for loss normalization; false=use batch.size
         """
         assert check_argument_types()
         super().__init__()
@@ -27,6 +29,7 @@ class CTC(torch.nn.Module):
 
         reduction_type = "sum" if reduce else "none"
         self.ctc_loss = torch.nn.CTCLoss(reduction=reduction_type)
+        self.normalize_length = normalize_length
 
     def forward(self, hs_pad: torch.Tensor, hlens: torch.Tensor,
                 ys_pad: torch.Tensor, ys_lens: torch.Tensor) -> torch.Tensor:
@@ -45,7 +48,8 @@ class CTC(torch.nn.Module):
         ys_hat = ys_hat.log_softmax(2)
         loss = self.ctc_loss(ys_hat, ys_pad, hlens, ys_lens)
         # Batch-size average
-        loss = loss / ys_hat.size(1)
+        denom = torch.sum(ys_lens).item() if self.normalize_length else ys_hat.size(1)
+        loss = loss / denom #ys_hat.size(1)
         return loss
 
     def log_softmax(self, hs_pad: torch.Tensor) -> torch.Tensor:
