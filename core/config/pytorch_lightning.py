@@ -39,7 +39,7 @@ class TrainerConfig:
     checkpoint_callback: Any = True
     callbacks: Optional[Any] = None
     default_root_dir: Optional[str] = None
-    gradient_clip_val: float = 0
+    gradient_clip_val: float = 5.0 #0 # TODO
     process_position: int = 0
     num_nodes: int = 1
     num_processes: int = 1

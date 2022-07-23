@@ -42,17 +42,17 @@ class ASRModel(ModelPT, ABC):
 
     def multi_validation_epoch_end(self, outputs, dataloader_idx: int = 0):
         #import ipdb; ipdb.set_trace()
-        val_loss_mean = torch.stack([x['val_loss'] for x in outputs]).mean()
-        wer_num = torch.stack([x['val_wer_num'] for x in outputs]).sum()
-        wer_denom = torch.stack([x['val_wer_denom'] for x in outputs]).sum()
+        val_loss_mean = torch.stack([x['val_loss'] for x in outputs if not torch.isnan(x['val_loss'])]).mean()
+        wer_num = torch.stack([x['val_wer_num'] for x in outputs if not torch.isnan(x['val_wer_num'])]).sum()
+        wer_denom = torch.stack([x['val_wer_denom'] for x in outputs if not torch.isnan(x['val_wer_denom'])]).sum() + torch.tensor(0.000001) # smoothing only
         tensorboard_logs = {'val_loss': val_loss_mean, 'val_wer': wer_num / wer_denom}
         return {'val_loss': val_loss_mean, 'log': tensorboard_logs}
 
     def multi_test_epoch_end(self, outputs, dataloader_idx: int = 0):
         #import ipdb; ipdb.set_trace()
-        val_loss_mean = torch.stack([x['test_loss'] for x in outputs]).mean()
-        wer_num = torch.stack([x['test_wer_num'] for x in outputs]).sum()
-        wer_denom = torch.stack([x['test_wer_denom'] for x in outputs]).sum()
+        val_loss_mean = torch.stack([x['test_loss'] for x in outputs if not torch.isnan(x['test_loss'])]).mean()
+        wer_num = torch.stack([x['test_wer_num'] for x in outputs if not torch.isnan(x['test_wer_num'])]).sum()
+        wer_denom = torch.stack([x['test_wer_denom'] for x in outputs if not torch.isnan(x['test_wer_denom'])]).sum() + torch.tensor(0.000001) # smoothing only
         tensorboard_logs = {'test_loss': val_loss_mean, 'test_wer': wer_num / wer_denom}
         return {'test_loss': val_loss_mean, 'log': tensorboard_logs}
 
