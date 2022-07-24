@@ -564,7 +564,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
         # preserve config
         self._update_dataset_config(dataset_name='test', config=test_data_config)
-
+        #import ipdb; ipdb.set_trace()
         self._test_dl = self._setup_dataloader_from_config(config=test_data_config)
 
     @property
@@ -725,7 +725,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
     # PTL-specific methods
     def training_step(self, batch, batch_nb):
         #import ipdb; ipdb.set_trace()
-        signal, signal_len, transcript, transcript_len = batch
+        #signal, signal_len, transcript, transcript_len = batch
+        signal, signal_len, transcript, transcript_len, sample_ids, fn_list = self.parse_batch(batch)
         # use -1 to pad transcript_len! (was 0 for padding)
         transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
 
@@ -774,7 +775,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         #import ipdb; ipdb.set_trace() # TODO not checked yet
-        signal, signal_len, transcript, transcript_len, sample_id = batch
+        #signal, signal_len, transcript, transcript_len, sample_id = batch
+        signal, signal_len, transcript, transcript_len, sample_ids, fn_list = self.parse_batch(batch)
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
             log_probs, encoded_len, predictions = self.forward(
                 processed_signal=signal, processed_signal_length=signal_len
@@ -791,7 +793,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         #import ipdb; ipdb.set_trace()
-        signal, signal_len, transcript, transcript_len = batch
+        #signal, signal_len, transcript, transcript_len = batch
+        signal, signal_len, transcript, transcript_len, sample_ids, fn_list = self.parse_batch(batch)
         # use -1 to pad transcript_len! (was 0 for padding)
         transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
 
@@ -829,12 +832,33 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             'val_acc': acc_att,
         }
 
+    def parse_batch(self, batch):
+        sample_ids, fn_list = None, None
+        if len(batch) == 4:
+            signal, signal_len, transcript, transcript_len = batch
+        elif len(batch) == 5:
+            id_or_fn = batch[-1]
+            if id_or_fn is None or len(id_or_fn) == 0:
+                signal, signal_len, transcript, transcript_len, _ = batch
+            else:
+                if isinstance(batch[-1][0], str):
+                    signal, signal_len, transcript, transcript_len, fn_list = batch
+                else:
+                    signal, signal_len, transcript, transcript_len, sample_ids = batch
+        elif len(batch) == 6:
+            signal, signal_len, transcript, transcript_len, sample_ids, fn_list = batch
+        else:
+            raise ValueError('expect 4, 5, or 6 elemments in a batch, got {}'.format(len(batch)))
+
+        return signal, signal_len, transcript, transcript_len, sample_ids, fn_list
+
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         import ipdb; ipdb.set_trace()
         # NOTE: the decoding algorithms can be called here! and do real decoding~~
         # such as (1) ctc greedy search (2) ctc prefix beam search 
         # (3) (auto-regressive) attention decoder (4) attention rescoring
-        signal, signal_len, transcript, transcript_len = batch
+        signal, signal_len, transcript, transcript_len, sample_ids, fn_list = self.parse_batch(batch)
+
         # use -1 to pad transcript_len! (was 0 for padding)
         transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
 
@@ -907,21 +931,24 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                     break
                 content += self.char_dict[w_id]
             ref = ''.join([self.char_dict[w_id.item()] for w_id in transcript[i]])
-            print('tstout={}\tref={}'.format(content, ref))
+            fn = fn_list[i] if fn_list and len(fn_list) > i else 'fn=NA'
+            print('tstout={}\tref={}\t{}'.format(content, ref, fn))
 
             # TODO think about n-best output as well
             # write n-best result to fout!
             if out_beam and hyps_nbest is not None and scores_nbest is not None:
                 for j, hyp in enumerate(hyps_nbest[i]):
                     # (prefix, prob from ctc)
-                    hyp_prefix = hyp.cpu().numpy() if isinstance(hyp, torch.Tensor) else hyp[0]
+                    hyp_prefix = hyp.cpu().numpy() if isinstance(hyp, 
+                            torch.Tensor) else hyp[0]
                     content = ''
                     for w in hyp_prefix:
                         if w == self.eos:
                             break
                         content += self.char_dict[w]
                     #out_row = 'beam: {} {} {} {}'.format(key, j, scores_nbest[i][j], content)
-                    out_row = 'beam: {} {} {}'.format(j, scores_nbest[i][j], content)
+                    out_row = 'beam: {} {} {} {}'.format(
+                            j, scores_nbest[i][j], content, fn)
                     #logging.info(out_row)
                     #fout.write(out_row + '\n')
                     print(out_row)

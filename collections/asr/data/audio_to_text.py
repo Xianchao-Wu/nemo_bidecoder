@@ -50,14 +50,18 @@ def _speech_collate_fn(batch, pad_id):
                encoded tokens, and encoded tokens length.  This collate func
                assumes the signals are 1d torch tensors (i.e. mono audio).
     """
+    ###import ipdb; ipdb.set_trace()
     packed_batch = list(zip(*batch))
-    if len(packed_batch) == 5:
+    if len(packed_batch) == 6:
+        _, audio_lengths, _, tokens_lengths, sample_ids, file_names = packed_batch
+    elif len(packed_batch) == 5:
+        file_names = None
         _, audio_lengths, _, tokens_lengths, sample_ids = packed_batch
     elif len(packed_batch) == 4:
-        sample_ids = None
+        sample_ids, file_names = None, None
         _, audio_lengths, _, tokens_lengths = packed_batch
     else:
-        raise ValueError("Expects 4 or 5 tensors in the batch!")
+        raise ValueError("Expects 4, 5 or 6 tensors in the batch!")
     max_audio_len = 0
     has_audio = audio_lengths[0] is not None
     if has_audio:
@@ -66,7 +70,9 @@ def _speech_collate_fn(batch, pad_id):
 
     audio_signal, tokens = [], []
     for b in batch:
-        if len(b) == 5:
+        if len(b) == 6:
+            sig, sig_len, tokens_i, tokens_i_len, _, _ = b
+        elif len(b) == 5:
             sig, sig_len, tokens_i, tokens_i_len, _ = b
         else:
             sig, sig_len, tokens_i, tokens_i_len = b
@@ -89,12 +95,22 @@ def _speech_collate_fn(batch, pad_id):
         audio_signal, audio_lengths = None, None
     tokens = torch.stack(tokens)
     tokens_lengths = torch.stack(tokens_lengths)
-    if sample_ids is None:
-        return audio_signal, audio_lengths, tokens, tokens_lengths
-    else:
-        sample_ids = torch.tensor(sample_ids, dtype=torch.int32)
-        return audio_signal, audio_lengths, tokens, tokens_lengths, sample_ids
 
+    ###import ipdb; ipdb.set_trace()
+    if len(packed_batch) == 4:
+        return (audio_signal, audio_lengths, tokens, tokens_lengths)
+    elif len(packed_batch) == 5:
+        if isinstance(sample_ids[0], int):
+            sample_ids = torch.tensor(sample_ids, dtype=torch.int32)
+        #else:
+        #    sample_ids = torch.tensor(sample_ids, dtype=torch.int32)
+        return (audio_signal, audio_lengths, tokens, tokens_lengths, sample_ids)
+    else:
+        if isinstance(sample_ids[0], int):
+            sample_ids = torch.tensor(sample_ids, dtype=torch.int32)
+        #else:
+        #    sample_ids = torch.tensor(sample_ids, dtype=torch.int32)
+        return (audio_signal, audio_lengths, tokens, tokens_lengths, sample_ids, file_names)
 
 class ASRManifestProcessor:
     """
@@ -180,6 +196,7 @@ class _AudioTextDataset(Dataset):
         bos_id: Id of beginning of sequence symbol to append if not None
         eos_id: Id of end of sequence symbol to append if not None
         return_sample_id (bool): whether to return the sample_id as a part of each sample
+        return_file_name (bool): whether to return the file_name as a part of each sample
     """
 
     @property
@@ -209,8 +226,9 @@ class _AudioTextDataset(Dataset):
         eos_id: Optional[int] = None,
         pad_id: int = 0,
         return_sample_id: bool = False,
+        return_file_name: bool = False,
     ):
-        #import ipdb; ipdb.set_trace()
+        ###import ipdb; ipdb.set_trace()
         if type(manifest_filepath) == str:
             manifest_filepath = manifest_filepath.split(",")
 
@@ -227,11 +245,13 @@ class _AudioTextDataset(Dataset):
         self.featurizer = WaveformFeaturizer(sample_rate=sample_rate, int_values=int_values, augmentor=augmentor)
         self.trim = trim
         self.return_sample_id = return_sample_id
+        self.return_file_name = return_file_name
 
     def get_manifest_sample(self, sample_id):
         return self.manifest_processor.collection[sample_id]
 
     def __getitem__(self, index):
+        #import ipdb; ipdb.set_trace()
         sample = self.manifest_processor.collection[index]
         offset = sample.offset
 
@@ -249,6 +269,9 @@ class _AudioTextDataset(Dataset):
             output = f, fl, torch.tensor(t).long(), torch.tensor(tl).long(), index
         else:
             output = f, fl, torch.tensor(t).long(), torch.tensor(tl).long()
+
+        if self.return_file_name:
+            output = output + (sample.audio_file,)
 
         return output
 
@@ -288,6 +311,7 @@ class AudioToCharDataset(_AudioTextDataset):
         bos_id: Id of beginning of sequence symbol to append if not None
         eos_id: Id of end of sequence symbol to append if not None
         return_sample_id (bool): whether to return the sample_id as a part of each sample
+        return_file_name (bool): whether to return the file_name as a part of each sample
     """
 
     @property
@@ -321,6 +345,7 @@ class AudioToCharDataset(_AudioTextDataset):
         pad_id: int = 0,
         parser: Union[str, Callable] = 'en',
         return_sample_id: bool = False,
+        return_file_name: bool = False,
     ):
         self.labels = labels
 
@@ -342,6 +367,7 @@ class AudioToCharDataset(_AudioTextDataset):
             eos_id=eos_id,
             pad_id=pad_id,
             return_sample_id=return_sample_id,
+            return_file_name=return_file_name,
         )
 
 
@@ -840,6 +866,7 @@ class AudioToBPEDataset(_AudioTextDataset):
         use_start_end_token: Boolean which dictates whether to add [BOS] and [EOS]
             tokens to beginning and ending of speech respectively.
         return_sample_id (bool): whether to return the sample_id as a part of each sample
+        return_file_name (bool): whether to return the file_name as a part of each sample
     """
 
     @property
@@ -867,6 +894,7 @@ class AudioToBPEDataset(_AudioTextDataset):
         trim: bool = False,
         use_start_end_token: bool = True,
         return_sample_id: bool = False,
+        return_file_name: bool = False,
     ):
         #import ipdb; ipdb.set_trace()
         if use_start_end_token and hasattr(tokenizer, 'bos_token'):
@@ -906,6 +934,7 @@ class AudioToBPEDataset(_AudioTextDataset):
             pad_id=pad_id,
             trim=trim,
             return_sample_id=return_sample_id,
+            return_file_name=return_file_name,
         )
 
 
@@ -995,6 +1024,7 @@ class _TarredAudioToTextDataset(IterableDataset):
         global_rank (int): Worker rank, used for partitioning shards. Defaults to 0.
         world_size (int): Total number of processes, used for partitioning shards. Defaults to 0.
         return_sample_id (bool): whether to return the sample_id as a part of each sample
+        return_file_name (bool): whether to return the file_name as a part of each sample
     """
 
     def __init__(
@@ -1017,6 +1047,7 @@ class _TarredAudioToTextDataset(IterableDataset):
         global_rank: int = 0,
         world_size: int = 0,
         return_sample_id: bool = False,
+        return_file_name: bool = False,
     ):
         self.collection = collections.ASRAudioText(
             manifests_files=manifest_filepath,
@@ -1033,6 +1064,7 @@ class _TarredAudioToTextDataset(IterableDataset):
         self.bos_id = bos_id
         self.pad_id = pad_id
         self.return_sample_id = return_sample_id
+        self.return_file_name = return_file_name
 
         valid_shard_strategies = ['scatter', 'replicate']
         if shard_strategy not in valid_shard_strategies:
@@ -1158,6 +1190,7 @@ class _TarredAudioToTextDataset(IterableDataset):
             t = t + [self.eos_id]
             tl += 1
 
+        # TODO to check the usage of return_file_name
         if self.return_sample_id:
             return f, fl, torch.tensor(t).long(), torch.tensor(tl).long(), manifest_idx
         else:
@@ -1255,6 +1288,7 @@ class TarredAudioToCharDataset(_TarredAudioToTextDataset):
         global_rank (int): Worker rank, used for partitioning shards. Defaults to 0.
         world_size (int): Total number of processes, used for partitioning shards. Defaults to 0.
         return_sample_id (bool): whether to return the sample_id as a part of each sample
+        return_file_name (bool): whether to return the file_name as a part of each sample
     """
 
     def __init__(
@@ -1281,6 +1315,7 @@ class TarredAudioToCharDataset(_TarredAudioToTextDataset):
         global_rank: int = 0,
         world_size: int = 0,
         return_sample_id: bool = False,
+        return_file_name: bool = False,
     ):
         self.labels = labels
 
@@ -1307,6 +1342,7 @@ class TarredAudioToCharDataset(_TarredAudioToTextDataset):
             global_rank=global_rank,
             world_size=world_size,
             return_sample_id=return_sample_id,
+            return_file_name=return_file_name,
         )
 
 
@@ -1382,6 +1418,7 @@ class TarredAudioToBPEDataset(_TarredAudioToTextDataset):
         global_rank (int): Worker rank, used for partitioning shards. Defaults to 0.
         world_size (int): Total number of processes, used for partitioning shards. Defaults to 0.
         return_sample_id (bool): whether to return the sample_id as a part of each sample
+        return_file_name (bool): whether to return the file_name as a part of each sample
     """
 
     def __init__(
@@ -1402,6 +1439,7 @@ class TarredAudioToBPEDataset(_TarredAudioToTextDataset):
         global_rank: int = 0,
         world_size: int = 0,
         return_sample_id: bool = False,
+        return_file_name: bool = False,
     ):
         if use_start_end_token and hasattr(tokenizer, 'bos_token'):
             bos_id = tokenizer.bos_id
@@ -1445,6 +1483,7 @@ class TarredAudioToBPEDataset(_TarredAudioToTextDataset):
             global_rank=global_rank,
             world_size=world_size,
             return_sample_id=return_sample_id,
+            return_file_name=return_file_name,
         )
 
 

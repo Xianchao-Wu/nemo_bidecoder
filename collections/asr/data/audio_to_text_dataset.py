@@ -97,6 +97,7 @@ def get_char_dataset(config: dict, augmentor: Optional['AudioAugmentor'] = None)
         trim=config.get('trim_silence', False),
         parser=config.get('parser', 'en'),
         return_sample_id=config.get('return_sample_id', False),
+        return_file_name=config.get('return_file_name', False),
     )
     return dataset
 
@@ -127,6 +128,7 @@ def get_bpe_dataset(
         trim=config.get('trim_silence', False),
         use_start_end_token=config.get('use_start_end_token', True),
         return_sample_id=config.get('return_sample_id', False),
+        return_file_name=config.get('return_file_name', False),
     )
     return dataset
 
@@ -195,6 +197,7 @@ def get_tarred_dataset(
                 global_rank=global_rank,
                 world_size=world_size,
                 return_sample_id=config.get('return_sample_id', False),
+                return_file_name=config.get('return_file_name', False),
             )
         else:
             dataset = audio_to_text.TarredAudioToBPEDataset(
@@ -214,6 +217,7 @@ def get_tarred_dataset(
                 global_rank=global_rank,
                 world_size=world_size,
                 return_sample_id=config.get('return_sample_id', False),
+                return_file_name=config.get('return_file_name', False),
             )
 
         datasets.append(dataset)
@@ -305,6 +309,7 @@ def get_dali_char_dataset(
         world_size=world_size,
         preprocessor_cfg=preprocessor_cfg,
         return_sample_id=config.get('return_sample_id', False),
+        return_file_name=config.get('return_file_name', False),
     )
     return dataset
 
@@ -350,6 +355,7 @@ def get_dali_bpe_dataset(
         world_size=world_size,
         preprocessor_cfg=preprocessor_cfg,
         return_sample_id=config.get('return_sample_id', False),
+        return_file_name=config.get('return_file_name', False),
     )
     return dataset
 

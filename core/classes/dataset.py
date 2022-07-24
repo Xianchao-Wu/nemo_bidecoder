@@ -34,7 +34,7 @@ class Dataset(data.Dataset, Typing, Serialization):
         """
         return data.dataloader.default_collate(batch)
 
-    @typecheck()
+    #@typecheck() # TODO
     def collate_fn(self, batch):
         """
         This is the method that user pass as functor to DataLoader.
