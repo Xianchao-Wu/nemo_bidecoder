@@ -192,7 +192,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                         self.cfg.decoder.num_classes, len(self.cfg.decoder.vocabulary)
                     )
                 )
-                cfg.decoder["num_classes"] = len(self.cfg.decoder.vocabulary) + 1 # TODO for sos/eos
+                cfg.decoder["num_classes"] = len(self.cfg.decoder.vocabulary) + 1 # NOTE for sos/eos
 
         #import ipdb; ipdb.set_trace()
         self.decoder = EncDecCTCAttnModel.from_config_dict(self._cfg.decoder)
@@ -216,12 +216,11 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             normalize_length = self._cfg.get('length_normalized_loss', False))
 
         self.criterion_att = LabelSmoothingLoss(
-            size = self.decoder.num_classes_with_blank, #- 1, # TODO
-            padding_idx = self.ignore_id, # TODO
-            #smoothing=self.cfg.model.lsm_weight, # TODO, use 'cfg' or '_cfg'?
-            smoothing = self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
-            #normalize_length=self.cfg.model.length_normalized_loss, # TODO
-            normalize_length = self._cfg.get('length_normalized_loss', False), # TODO
+            size = self.decoder.num_classes_with_blank, #- 1, # NOTE
+            padding_idx = self.ignore_id, 
+            #smoothing=self.cfg.model.lsm_weight, # NOTE, use 'cfg' or '_cfg'? use _cfg!
+            smoothing = self._cfg.get('lsm_weight', 0.1), 
+            normalize_length = self._cfg.get('length_normalized_loss', False), # NOTE
         )
 
         #import ipdb; ipdb.set_trace()
@@ -375,7 +374,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             decoder_config = self.decoder.to_config_dict()
             new_decoder_config = copy.deepcopy(decoder_config)
             new_decoder_config['vocabulary'] = new_vocabulary
-            new_decoder_config['num_classes'] = len(new_vocabulary) + 1 # TODO for sos/eos
+            new_decoder_config['num_classes'] = len(new_vocabulary) + 1 # NOTE for sos/eos
 
             del self.decoder
             self.decoder = EncDecCTCAttnModel.from_config_dict(new_decoder_config)
@@ -391,12 +390,11 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
             del self.criterion_att
             self.criterion_att = LabelSmoothingLoss(
-                size = self.decoder.num_classes_with_blank - 1, # TODO
-                padding_idx = self.ignore_id, # TODO
-                #smoothing=self.cfg.model.lsm_weight, # TODO, use 'cfg' or '_cfg'?
-                smoothing = self._cfg.get('lsm_weight', 0.1), # TODO, use 'cfg' or '_cfg'?
-                #normalize_length=self.cfg.model.length_normalized_loss, # TODO
-                normalize_length = self._cfg.get('length_normalized_loss', False), # TODO
+                size = self.decoder.num_classes_with_blank - 1, # NOTE
+                padding_idx = self.ignore_id, 
+                #smoothing=self.cfg.model.lsm_weight, # NOTE, use 'cfg' or '_cfg'? -> '_cfg'
+                smoothing = self._cfg.get('lsm_weight', 0.1), 
+                normalize_length = self._cfg.get('length_normalized_loss', False), # NOTE
             )
 
             self._wer = WER(
@@ -833,15 +831,20 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         import ipdb; ipdb.set_trace()
-        # TODO the decoding algorithms can be called here! and do real decoding~~
-        # such as (1) ctc greedy search (2) ctc prefix beam search (3) attention decoder (4) attention rescoring
+        # NOTE: the decoding algorithms can be called here! and do real decoding~~
+        # such as (1) ctc greedy search (2) ctc prefix beam search 
+        # (3) (auto-regressive) attention decoder (4) attention rescoring
         signal, signal_len, transcript, transcript_len = batch
         # use -1 to pad transcript_len! (was 0 for padding)
         transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
 
-        beam_size = 10 # TODO read from config
+        beam_size = self._cfg.get('inf_beam_size', 10) # NOTE: read from config
         hyps_nbest, scores_nbest = None, None # for n-best output
-        out_beam = True # TODO read from config, is output n-best beam output or not
+        
+        out_beam = self._cfg.get('inf_out_beam', True) 
+        # NOTE read from config, is output n-best beam output or not
+
+        simulate_streaming = self._cfg.get('inf_simulate_streaming', False)
 
         inf_alg = self._cfg.get('inf_alg', 'attention_rescoring') # default inference algorithm
         if inf_alg == 'attention_rescoring':
@@ -854,7 +857,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 decoding_chunk_size = -1,
                 num_decoding_left_chunks = -1,
                 ctc_weight = self.ctc_weight,
-                simulate_streaming = False, # TODO
+                simulate_streaming = simulate_streaming,  
                 reverse_weight = self.reverse_weight
             )
             
@@ -870,7 +873,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 beam_size,
                 decoding_chunk_size = -1,
                 num_decoding_left_chunks = -1,
-                simulate_streaming = False
+                simulate_streaming = simulate_streaming
             )
             hyps = [hyp[0]] # TODO original was hyps=[hyp], yet hyp=((1396, ..., 1670), logp)
             if out_beam:
@@ -882,7 +885,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 signal_len,
                 decoding_chunk_size = -1,
                 num_decoding_left_chunks = -1,
-                simulate_streaming = False
+                simulate_streaming = simulate_streaming
             )
         elif inf_alg == 'attention':
             # auto-regressive decoding
@@ -892,7 +895,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 beam_size = beam_size,
                 decoding_chunk_size = -1,
                 num_decoding_left_chunks = -1,
-                simulate_streaming = False)
+                simulate_streaming = simulate_streaming
+            )
             hyps = [hyp.tolist() for hyp in hyps]
 
         for i in range(signal.size(0)):
@@ -906,6 +910,22 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             print('tstout={}\tref={}'.format(content, ref))
 
             # TODO think about n-best output as well
+            # write n-best result to fout!
+            if out_beam and hyps_nbest is not None and scores_nbest is not None:
+                for j, hyp in enumerate(hyps_nbest[i]):
+                    # (prefix, prob from ctc)
+                    hyp_prefix = hyp.cpu().numpy() if isinstance(hyp, torch.Tensor) else hyp[0]
+                    content = ''
+                    for w in hyp_prefix:
+                        if w == self.eos:
+                            break
+                        content += self.char_dict[w]
+                    #out_row = 'beam: {} {} {} {}'.format(key, j, scores_nbest[i][j], content)
+                    out_row = 'beam: {} {} {}'.format(j, scores_nbest[i][j], content)
+                    #logging.info(out_row)
+                    #fout.write(out_row + '\n')
+                    print(out_row)
+
 
         #import ipdb; ipdb.set_trace()
         logs = self.validation_step(batch, batch_idx, dataloader_idx=dataloader_idx)
