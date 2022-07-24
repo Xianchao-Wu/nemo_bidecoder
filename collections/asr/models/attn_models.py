@@ -39,6 +39,9 @@ from nemo.collections.asr.utils.common import (IGNORE_ID, add_sos_eos, log_add,
                                                remove_duplicates_and_blank, th_accuracy,
                                                reverse_pad_list) # from wenet
 from nemo.collections.asr.modules.label_smoothing_loss import LabelSmoothingLoss # from wenet
+from nemo.collections.asr.modules.cmvn_model import GlobalCMVN
+from nemo.collections.asr.utils.cmvn import load_cmvn
+
 from nemo.collections.asr.utils.mask import (make_pad_mask, mask_finished_scores,
                                              mask_finished_preds, subsequent_mask)# from wenet
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
@@ -173,6 +176,16 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
         super().__init__(cfg=cfg, trainer=trainer)
         #import ipdb; ipdb.set_trace()
+        #cmvn_file = self._cfg.get('cmvn', None)
+        #if cmvn_file is not None and os.path.exists(cmvn_file):
+        #    cmvn_mean, cmvn_istd = load_cmvn(cmvn_file, True)
+        #    self.global_cmvn = GlobalCMVN(
+        #        torch.from_numpy(cmvn_mean).float(),
+        #        torch.from_numpy(cmvn_istd).float()
+        #    )
+        #else:
+        #    self.global_cmvn = None
+
         self.preprocessor = EncDecCTCAttnModel.from_config_dict(self._cfg.preprocessor)
         #import ipdb; ipdb.set_trace()
         self.encoder = EncDecCTCAttnModel.from_config_dict(self._cfg.encoder)
@@ -853,7 +866,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         return signal, signal_len, transcript, transcript_len, sample_ids, fn_list
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         # NOTE: the decoding algorithms can be called here! and do real decoding~~
         # such as (1) ctc greedy search (2) ctc prefix beam search 
         # (3) (auto-regressive) attention decoder (4) attention rescoring

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import math
+import os
 from collections import OrderedDict
 
 import torch
@@ -26,6 +27,9 @@ from nemo.core.classes.common import typecheck
 from nemo.core.classes.exportable import Exportable
 from nemo.core.classes.module import NeuralModule
 from nemo.core.neural_types import AcousticEncodedRepresentation, LengthsType, NeuralType, SpectrogramType
+from nemo.collections.asr.modules.cmvn_model import GlobalCMVN
+from nemo.collections.asr.utils.cmvn import load_cmvn
+
 
 __all__ = ['ConformerEncoder']
 
@@ -127,6 +131,7 @@ class ConformerEncoder(NeuralModule, Exportable):
         dropout=0.1,
         dropout_emb=0.1,
         dropout_att=0.0,
+        cmvn='', # global cmvn file name
     ):
         #import ipdb; ipdb.set_trace()
         super().__init__()
@@ -213,6 +218,18 @@ class ConformerEncoder(NeuralModule, Exportable):
             self._feat_out = d_model
         self.set_max_audio_length(self.pos_emb_max_len)
 
+        #import ipdb; ipdb.set_trace()
+        cmvn_file = cmvn #self._cfg.get('cmvn', None)
+        if cmvn_file is not None and os.path.exists(cmvn_file):
+            cmvn_mean, cmvn_istd = load_cmvn(cmvn_file, True)
+            self.global_cmvn = GlobalCMVN(
+                torch.from_numpy(cmvn_mean).float(),
+                torch.from_numpy(cmvn_istd).float()
+            )
+        else:
+            self.global_cmvn = None
+
+
     def set_max_audio_length(self, max_audio_length):
         """ Sets maximum input length.
             Pre-calculates internal seq_range mask.
@@ -245,6 +262,10 @@ class ConformerEncoder(NeuralModule, Exportable):
             )
 
         audio_signal = torch.transpose(audio_signal, 1, 2)
+        # TODO do cmvn here:
+        #import ipdb; ipdb.set_trace()
+        if self.global_cmvn is not None:
+            audio_signal = self.global_cmvn(audio_signal)
 
         if isinstance(self.pre_encode, ConvSubsampling):
             audio_signal, length = self.pre_encode(audio_signal, length)
