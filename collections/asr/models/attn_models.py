@@ -39,7 +39,8 @@ from nemo.collections.asr.utils.common import (IGNORE_ID, add_sos_eos, log_add,
                                                remove_duplicates_and_blank, th_accuracy,
                                                reverse_pad_list) # from wenet
 from nemo.collections.asr.modules.label_smoothing_loss import LabelSmoothingLoss # from wenet
-from nemo.collections.asr.utils.mask import make_pad_mask # from wenet
+from nemo.collections.asr.utils.mask import (make_pad_mask, mask_finished_scores,
+                                             mask_finished_preds, subsequent_mask)# from wenet
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.neural_types import (AudioSignal, LabelsType, LengthsType, 
                                     LogprobsType, NeuralType, SpectrogramType,
@@ -861,6 +862,38 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             if out_beam:
                 hyps_nbest = [hyps_nbest]
                 scores_nbest = [scores_nbest]
+        elif inf_alg == 'ctc_prefix_beam_search':
+            assert (signal.size(0) == 1)
+            hyp, hyps_nbest = self.ctc_prefix_beam_search(
+                signal,
+                signal_len,
+                beam_size,
+                decoding_chunk_size = -1,
+                num_decoding_left_chunks = -1,
+                simulate_streaming = False
+            )
+            hyps = [hyp[0]] # TODO original was hyps=[hyp], yet hyp=((1396, ..., 1670), logp)
+            if out_beam:
+                scores_nbest = [[y[1] for y in hyps_nbest]]
+                hyps_nbest = [hyps_nbest]
+        elif inf_alg == 'ctc_greedy_search':
+            hyps, _ = self.ctc_greedy_search(
+                signal,
+                signal_len,
+                decoding_chunk_size = -1,
+                num_decoding_left_chunks = -1,
+                simulate_streaming = False
+            )
+        elif inf_alg == 'attention':
+            # auto-regressive decoding
+            hyps, _, hyps_nbest, scores_nbest = self.recognize(
+                signal,
+                signal_len,
+                beam_size = beam_size,
+                decoding_chunk_size = -1,
+                num_decoding_left_chunks = -1,
+                simulate_streaming = False)
+            hyps = [hyp.tolist() for hyp in hyps]
 
         for i in range(signal.size(0)):
             # TODO need batch with "keys" (a list of keys to label outputs!)
@@ -872,7 +905,9 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             ref = ''.join([self.char_dict[w_id.item()] for w_id in transcript[i]])
             print('tstout={}\tref={}'.format(content, ref))
 
-        import ipdb; ipdb.set_trace()
+            # TODO think about n-best output as well
+
+        #import ipdb; ipdb.set_trace()
         logs = self.validation_step(batch, batch_idx, dataloader_idx=dataloader_idx)
         test_logs = {
             'test_loss': logs['val_loss'],
@@ -949,7 +984,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 #decoding_chunk_size=decoding_chunk_size,
                 #num_decoding_left_chunks=num_decoding_left_chunks
             )  # (B, maxlen, encoder_dim)
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         encoder_out = encoder_out.transpose(1, 2) # from (B, hidden dim, len) to (B, len, hidden dim)
         encoder_out_mask = ~make_pad_mask(encoder_out_len).unsqueeze(1) # (B, 1, hidden dim)
 
@@ -1044,7 +1079,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                                reverse=True)
             cur_hyps = next_hyps[:beam_size]
 
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         hyps = [(y[0], log_add([y[1][0], y[1][1]])) for y in cur_hyps]
         return hyps, encoder_out
 
@@ -1081,7 +1116,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         Returns:
             List[int]: Attention rescoring result
         """
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         assert speech.shape[0] == speech_lengths.shape[0]
         assert decoding_chunk_size != 0
         if reverse_weight > 0.0:
@@ -1150,6 +1185,203 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 best_score = score
                 best_index = i
         # TODO return all the n-best for system ensemble
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         return hyps[best_index][0], best_score, hyps, scores
+
+    def ctc_prefix_beam_search(
+        self,
+        speech: torch.Tensor,
+        speech_lengths: torch.Tensor,
+        beam_size: int,
+        decoding_chunk_size: int = -1,
+        num_decoding_left_chunks: int = -1,
+        simulate_streaming: bool = False,
+    ) -> List[int]: # TODO output type re-check!
+        """ Apply CTC prefix beam search
+
+        Args:
+            speech (torch.Tensor): (batch, max_len, feat_dim)
+            speech_length (torch.Tensor): (batch, )
+            beam_size (int): beam size for beam search
+            decoding_chunk_size (int): decoding chunk for dynamic chunk
+                trained model.
+                <0: for decoding, use full chunk.
+                >0: for decoding, use fixed chunk size as set.
+                0: used for training, it's prohibited here
+            simulate_streaming (bool): whether do encoder forward in a
+                streaming fashion
+
+        Returns:
+            List[int]: CTC prefix beam search nbest results
+        """
+        hyps, _ = self._ctc_prefix_beam_search(speech, speech_lengths,
+                                               beam_size, decoding_chunk_size,
+                                               num_decoding_left_chunks,
+                                               simulate_streaming)
+        # return n-best for system ensemble
+        return hyps[0], hyps
+
+    def ctc_greedy_search(
+        self,
+        speech: torch.Tensor,
+        speech_lengths: torch.Tensor,
+        decoding_chunk_size: int = -1,
+        num_decoding_left_chunks: int = -1,
+        simulate_streaming: bool = False,
+    ) -> List[List[int]]:
+        """ Apply CTC greedy search
+
+        Args:
+            speech (torch.Tensor): (batch, max_len, feat_dim)
+            speech_length (torch.Tensor): (batch, )
+            beam_size (int): beam size for beam search
+            decoding_chunk_size (int): decoding chunk for dynamic chunk
+                trained model.
+                <0: for decoding, use full chunk.
+                >0: for decoding, use fixed chunk size as set.
+                0: used for training, it's prohibited here
+            simulate_streaming (bool): whether do encoder forward in a
+                streaming fashion
+        Returns:
+            List[List[int]]: best path result
+        """
+        assert speech.shape[0] == speech_lengths.shape[0]
+        assert decoding_chunk_size != 0
+        batch_size = speech.shape[0]
+        # Let's assume B = batch_size
+        encoder_out, encoder_mask = self._forward_encoder(
+            speech, 
+            speech_lengths, 
+            decoding_chunk_size,
+            num_decoding_left_chunks,
+            simulate_streaming)  # (B, maxlen, encoder_dim)
+
+        maxlen = encoder_out.size(1)
+        encoder_out_lens = encoder_mask.squeeze(1).sum(1)
+        ctc_probs = self.ctc.log_softmax(
+            encoder_out)  # (B, maxlen, vocab_size)
+        topk_prob, topk_index = ctc_probs.topk(1, dim=2)  # (B, maxlen, 1)
+        topk_index = topk_index.view(batch_size, maxlen)  # (B, maxlen)
+
+        mask = make_pad_mask(encoder_out_lens, maxlen)  # (B, maxlen)
+        topk_index = topk_index.masked_fill_(mask, self.eos)  # (B, maxlen)
+        hyps = [hyp.tolist() for hyp in topk_index]
+        scores = topk_prob.max(1)
+        hyps = [remove_duplicates_and_blank(hyp) for hyp in hyps]
+        return hyps, scores
+
+
+    def recognize(
+        self,
+        speech: torch.Tensor,
+        speech_lengths: torch.Tensor,
+        beam_size: int = 10,
+        decoding_chunk_size: int = -1,
+        num_decoding_left_chunks: int = -1,
+        simulate_streaming: bool = False,
+    ) -> torch.Tensor:
+        """ Apply autoregressive (step-by-step) beam search on attention decoder
+
+        Args:
+            speech (torch.Tensor): (batch, max_len, feat_dim)
+            speech_length (torch.Tensor): (batch, )
+            beam_size (int): beam size for beam search
+            decoding_chunk_size (int): decoding chunk for dynamic chunk
+                trained model.
+                <0: for decoding, use full chunk.
+                >0: for decoding, use fixed chunk size as set.
+                0: used for training, it's prohibited here
+            simulate_streaming (bool): whether do encoder forward in a
+                streaming fashion
+
+        Returns:
+            torch.Tensor: decoding result, (batch, max_result_len)
+        """
+        assert speech.shape[0] == speech_lengths.shape[0]
+        assert decoding_chunk_size != 0
+        device = speech.device
+        batch_size = speech.shape[0]
+
+        # Let's assume B = batch_size and N = beam_size
+        # 1. Encoder
+        encoder_out, encoder_mask = self._forward_encoder(
+            speech, speech_lengths, decoding_chunk_size,
+            num_decoding_left_chunks,
+            simulate_streaming)  # (B, maxlen, encoder_dim)
+
+        maxlen = encoder_out.size(1)
+        encoder_dim = encoder_out.size(2)
+        running_size = batch_size * beam_size
+        encoder_out = encoder_out.unsqueeze(1).repeat(1, beam_size, 1, 1).view(
+            running_size, maxlen, encoder_dim)  # (B*N, maxlen, encoder_dim)
+        encoder_mask = encoder_mask.unsqueeze(1).repeat(
+            1, beam_size, 1, 1).view(running_size, 1,
+                                     maxlen)  # (B*N, 1, max_len)
+
+        hyps = torch.ones([running_size, 1], dtype=torch.long,
+                          device=device).fill_(self.sos)  # (B*N, 1)
+        scores = torch.tensor([0.0] + [-float('inf')] * (beam_size - 1),
+                              dtype=torch.float)
+        scores = scores.to(device).repeat([batch_size]).unsqueeze(1).to(
+            device)  # (B*N, 1)
+        end_flag = torch.zeros_like(scores, dtype=torch.bool, device=device)
+        cache: Optional[List[torch.Tensor]] = None
+        # 2. Decoder forward step by step
+        for i in range(1, maxlen + 1):
+            # Stop if all batch and all beam produce eos
+            #import ipdb; ipdb.set_trace()
+            if end_flag.sum() == running_size:
+                break
+            # 2.1 Forward decoder step
+            hyps_mask = subsequent_mask(i).unsqueeze(0).repeat(
+                running_size, 1, 1).to(device)  # (B*N, i, i)
+            # logp: (B*N, vocab)
+            logp, cache = self.decoder.forward_one_step(
+                encoder_out, encoder_mask, hyps, hyps_mask, cache)
+            # 2.2 First beam prune: select topk best prob at current time
+            top_k_logp, top_k_index = logp.topk(beam_size)  # (B*N, N)
+            top_k_logp = mask_finished_scores(top_k_logp, end_flag)
+            top_k_index = mask_finished_preds(top_k_index, end_flag, self.eos)
+            # 2.3 Second beam prune: select topk score with history
+            scores = scores + top_k_logp  # (B*N, N), broadcast add
+            scores = scores.view(batch_size, beam_size * beam_size)  # (B, N*N)
+            scores, offset_k_index = scores.topk(k=beam_size)  # (B, N)
+            scores = scores.view(-1, 1)  # (B*N, 1)
+            # 2.4. Compute base index in top_k_index,
+            # regard top_k_index as (B*N*N),regard offset_k_index as (B*N),
+            # then find offset_k_index in top_k_index
+            base_k_index = torch.arange(batch_size, device=device).view(
+                -1, 1).repeat([1, beam_size])  # (B, N)
+            base_k_index = base_k_index * beam_size * beam_size
+            best_k_index = base_k_index.view(-1) + offset_k_index.view(
+                -1)  # (B*N)
+
+            # 2.5 Update best hyps
+            best_k_pred = torch.index_select(top_k_index.view(-1),
+                                             dim=-1,
+                                             index=best_k_index)  # (B*N)
+            #best_hyps_index = best_k_index // beam_size
+            best_hyps_index = torch.div(best_k_index, beam_size, rounding_mode='floor')
+
+            last_best_k_hyps = torch.index_select(
+                hyps, dim=0, index=best_hyps_index)  # (B*N, i)
+            hyps = torch.cat((last_best_k_hyps, best_k_pred.view(-1, 1)),
+                             dim=1)  # (B*N, i+1)
+
+            # 2.6 Update end flag
+            end_flag = torch.eq(hyps[:, -1], self.eos).view(-1, 1)
+
+        # 3. Select best of best
+        #import ipdb; ipdb.set_trace()
+        scores = scores.view(batch_size, beam_size)
+        # TODO: length normalization
+        best_scores, best_index = scores.max(dim=-1)
+        best_hyps_index = best_index + torch.arange(
+            batch_size, dtype=torch.long, device=device) * beam_size
+        best_hyps = torch.index_select(hyps, dim=0, index=best_hyps_index)
+        best_hyps = best_hyps[:, 1:]
+        hyps = hyps.view(batch_size, beam_size, -1)
+        hyps = hyps[:, :, 1:]
+        #import ipdb; ipdb.set_trace()
+        return best_hyps, best_scores, hyps, scores
 
