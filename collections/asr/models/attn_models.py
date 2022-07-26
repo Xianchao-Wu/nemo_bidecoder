@@ -18,6 +18,7 @@ import tempfile
 from math import ceil
 from typing import Dict, List, Optional, Union, Tuple
 from collections import defaultdict
+import numpy as np
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -674,6 +675,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         #import ipdb; ipdb.set_trace()
         # 2b. ctc branch
         if self.ctc_weight != 0.0:
+            #import ipdb; ipdb.set_trace()
             loss_ctc = self.ctc(encoded, encoded_len, text, text_lengths)      
         else:
             loss_ctc = None
@@ -686,8 +688,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             loss = self.ctc_weight * loss_ctc + (1 - self.ctc_weight) * loss_att
 
         if torch.isnan(loss):
-            import ipdb; ipdb.set_trace()
-            print('loss=', loss)
+            #import ipdb; ipdb.set_trace()
+            print('bad, nan loss=', loss)
         #import ipdb; ipdb.set_trace()
         return loss, loss_att, loss_ctc, acc_att
 
@@ -740,6 +742,35 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         #import ipdb; ipdb.set_trace()
         #signal, signal_len, transcript, transcript_len = batch
         signal, signal_len, transcript, transcript_len, sample_ids, fn_list = self.parse_batch(batch)
+        debug = False
+        if debug:
+            # check the gradient of parameters in current model
+            max_p, min_p, max_g, min_g = 0.0, 0.0, 0.0, 0.0
+            mean_list = []
+            for name, params in self.named_parameters():
+                max_p = params.max().item() if params.max().item() > max_p else max_p
+                min_p = params.min().item() if params.min().item() < max_p else min_p
+                if params.requires_grad:
+                    amean_value = params.mean().item()
+                    mean_list.append(amean_value)
+                    if torch.isnan(params.mean()):
+                        #import ipdb; ipdb.set_trace()
+                        print('nan mean, why??? (batch fn is for next)', name, params, fn_list)
+
+                    grad_min = params.grad.min().item() if params.grad is not None else 'NA'
+                    grad_max = params.grad.max().item() if params.grad is not None else 'NA'
+                    #print(name, params.min(), params.max(), grad_min, grad_max)
+                    if grad_min != 'NA':
+                        min_g = grad_min if grad_min < min_g else min_g
+                        max_g = grad_max if grad_max > max_g else max_g
+
+            mean_value = np.mean(mean_list)
+            print(max_p, min_p, np.mean(mean_list), max_g, min_g)
+            if mean_value == float('nan'):
+                print('total mean is nan, (batch fn is for next)', mean_list, fn_list)
+
+        if debug:
+            print('fn_list:', fn_list)
         # use -1 to pad transcript_len! (was 0 for padding)
         transcript = pad_sequence([y[:i] for y, i in zip(transcript, transcript_len)], True, self.ignore_id)
 
@@ -781,8 +812,14 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         #    self._wer.reset()
         #    tensorboard_logs.update({'training_batch_wer': wer})
         if torch.isnan(loss):
-            import ipdb; ipdb.set_trace()
-            print('loss=', loss)
+            #import ipdb; ipdb.set_trace()
+            print('bad nan loss=', loss)
+            if debug:
+                print('bad nan, current fn_list:', fn_list)
+                os._exit(0)
+
+        if debug:
+            print(max_p, min_p, np.mean(mean_list), max_g, min_g, loss, tensorboard_logs)
 
         return {'loss': loss, 'log': tensorboard_logs}
 

@@ -28,7 +28,7 @@ class CTC(torch.nn.Module):
         self.ctc_lo = torch.nn.Linear(eprojs, odim)
 
         reduction_type = "sum" if reduce else "none"
-        self.ctc_loss = torch.nn.CTCLoss(reduction=reduction_type)
+        self.ctc_loss = torch.nn.CTCLoss(reduction=reduction_type, zero_infinity=True) # NOTE important!!!
         self.normalize_length = normalize_length
 
     def forward(self, hs_pad: torch.Tensor, hlens: torch.Tensor,
@@ -41,6 +41,7 @@ class CTC(torch.nn.Module):
             ys_pad: batch of padded character id sequence tensor (B, Lmax)
             ys_lens: batch of lengths of character sequence (B)
         """
+        #import ipdb; ipdb.set_trace()
         # hs_pad: (B, L, NProj) -> ys_hat: (B, L, Nvocab)
         ys_hat = self.ctc_lo(F.dropout(hs_pad, p=self.dropout_rate))
         # ys_hat: (B, L, D) -> (L, B, D)
