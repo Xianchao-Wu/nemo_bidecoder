@@ -87,6 +87,7 @@ class MultiHeadedAttention(nn.Module):
                 weighted by the attention score (#batch, time1, time2).
 
         """
+        #import ipdb; ipdb.set_trace()
         n_batch = value.size(0)
         # NOTE(xcsong): When will `if mask.size(2) > 0` be True?
         #   1. onnx(16/4) [WHY? Because we feed real cache & real mask for the
@@ -96,6 +97,7 @@ class MultiHeadedAttention(nn.Module):
             mask = mask.unsqueeze(1).eq(0)  # (batch, 1, *, time2)
             # For last chunk, time2 might be larger than scores.size(-1)
             mask = mask[:, :, :, :scores.size(-1)]  # (batch, 1, *, time2)
+            #import ipdb; ipdb.set_trace()
             scores = scores.masked_fill(mask, -float('inf'))
             attn = torch.softmax(scores, dim=-1).masked_fill(
                 mask, 0.0)  # (batch, head, time1, time2)

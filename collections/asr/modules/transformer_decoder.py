@@ -128,6 +128,7 @@ class TransformerDecoder(NeuralModule, Exportable):
                 torch.tensor(0.0), in order to unify api with bidirectional decoder
                 olens: (batch, )
         """
+        #import ipdb; ipdb.set_trace()
         tgt = ys_in_pad
         maxlen = tgt.size(1)
         # tgt_mask: (B, 1, L)
@@ -137,6 +138,7 @@ class TransformerDecoder(NeuralModule, Exportable):
         m = subsequent_mask(tgt_mask.size(-1),
                             device=tgt_mask.device).unsqueeze(0)
         # tgt_mask: (B, L, L)
+        #import ipdb; ipdb.set_trace()
         tgt_mask = tgt_mask & m
         x, _ = self.embed(tgt)
         for layer in self.decoders:

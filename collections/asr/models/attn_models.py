@@ -662,8 +662,12 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
         # 1. encoder
         encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
+        #import ipdb; ipdb.set_trace()
         encoded = encoded.transpose(1, 2) # from (batch, hidden dim, length) to (batch, length, hidden dim)
-        encoded_out_mask = ~make_pad_mask(encoded_len).unsqueeze(1) # (batch, 1, hidden dim)
+        #encoded_out_mask = ~make_pad_mask(encoded_len).unsqueeze(1) # (batch, 1, hidden dim)
+        encoded_out_mask = ~make_pad_mask(encoded_len, max_len=encoded.size(1)).unsqueeze(1) 
+        # (batch, 1, length of source seq)
+
         #import ipdb; ipdb.set_trace() 
         # 2a. attention-decoder branch
         acc_att = 0.0 # accuracy from attention decoder
