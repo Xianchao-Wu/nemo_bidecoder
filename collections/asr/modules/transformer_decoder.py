@@ -75,7 +75,7 @@ class TransformerDecoder(NeuralModule, Exportable):
 
         if input_layer == "embed":
             self.embed = torch.nn.Sequential(
-                torch.nn.Embedding(num_classes + 1, #vocab_size, TODO num_classes or num_classes+1 (for sos/eos)? 
+                torch.nn.Embedding(num_classes, # already includes <blank>, <unk>, and <sos/eos> 
                     attention_dim),
                 PositionalEncoding(attention_dim, positional_dropout_rate),
             )
@@ -85,7 +85,7 @@ class TransformerDecoder(NeuralModule, Exportable):
         self.normalize_before = normalize_before
         self.after_norm = torch.nn.LayerNorm(attention_dim, eps=1e-5)
         self.use_output_layer = use_output_layer
-        self.output_layer = torch.nn.Linear(attention_dim, num_classes) #vocab_size)
+        self.output_layer = torch.nn.Linear(attention_dim, num_classes)
         self.num_blocks = num_blocks
         self.decoders = torch.nn.ModuleList([
             DecoderLayer(
@@ -219,7 +219,7 @@ class BiTransformerDecoder(NeuralModule, Exportable):
     """
     def __init__(
         self,
-        num_classes: int, #vocab_size+1: int,
+        num_classes: int,
         feat_in: int, #encoder_output_size: int,
         attention_heads: int = 4,
         linear_units: int = 2048,
@@ -241,14 +241,14 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         super().__init__()
         
         if vocabulary is not None:
-            if num_classes != len(vocabulary) + 1: # TODO 
+            if num_classes != len(vocabulary): # TODO 
                 raise ValueError(
-                    f"If vocabulary is specified, it's length+1 should = num_classes. "
+                    f"If vocabulary is specified, it's length should = num_classes. "
                     f"Instead got: num_classes={num_classes} and len(vocabulary)={len(vocabulary)}"
                 )
             self.__vocabulary = vocabulary
         self._feat_in = feat_in
-        self._num_classes = num_classes #3606 already, don't + 1. id=3605 for eos=sos  
+        self._num_classes = num_classes # with <blank>, <unk> and <sos/eos> already  
 
         self.left_decoder = TransformerDecoder(
             num_classes, #vocab_size, 
@@ -287,9 +287,9 @@ class BiTransformerDecoder(NeuralModule, Exportable):
         Returns:
             (tuple): tuple containing:
                 x: decoded token score before softmax (batch, maxlen_out,
-                    num_classes=vocab_size+1) if use_output_layer is True,
+                    num_classes=vocab_size) if use_output_layer is True,
                 r_x: x: decoded token score (right to left decoder)
-                    before softmax (batch, maxlen_out, num_classes=vocab_size+1)
+                    before softmax (batch, maxlen_out, num_classes=vocab_size)
                     if use_output_layer is True,
                 olens: (batch, )
         """

@@ -432,7 +432,7 @@ class ConvASRDecoder(NeuralModule, Exportable):
         return OrderedDict({"logprobs": NeuralType(('B', 'T', 'D'), LogprobsType())})
 
     def __init__(self, feat_in, num_classes, init_mode="xavier_uniform", vocabulary=None):
-        #import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace() # num_classes=3605=vocab in config
         super().__init__()
 
         if vocabulary is not None:
@@ -441,14 +441,14 @@ class ConvASRDecoder(NeuralModule, Exportable):
                     f"If vocabulary is specified, it's length should be equal to the num_classes. Instead got: num_classes={num_classes} and len(vocabulary)={len(vocabulary)}"
                 )
             self.__vocabulary = vocabulary
-        self._feat_in = feat_in
+        self._feat_in = feat_in # 512
         # Add 1 for blank char
-        self._num_classes = num_classes + 1
+        self._num_classes = num_classes + 1 # 3605+1=3606
 
         self.decoder_layers = torch.nn.Sequential(
             torch.nn.Conv1d(self._feat_in, self._num_classes, kernel_size=1, bias=True)
         )
-        self.apply(lambda x: init_weights(x, mode=init_mode))
+        self.apply(lambda x: init_weights(x, mode=init_mode)) # TODO 参数的初始化方法！todo check it
 
     @typecheck()
     def forward(self, encoder_output):
@@ -476,11 +476,11 @@ class ConvASRDecoder(NeuralModule, Exportable):
 
     @property
     def vocabulary(self):
-        return self.__vocabulary
+        return self.__vocabulary # with 3605 entries TODO
 
     @property
     def num_classes_with_blank(self):
-        return self._num_classes
+        return self._num_classes # 3605+1=3606=self._num_classes TODO
 
 
 class ConvASRDecoderReconstruction(NeuralModule, Exportable):

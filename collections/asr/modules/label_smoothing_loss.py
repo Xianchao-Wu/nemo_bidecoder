@@ -34,7 +34,7 @@ class LabelSmoothingLoss(nn.Module):
     ]
 
     Args:
-        size (int): the number of class
+        size (int): the number of class in vocabulary
         padding_idx (int): padding class id which will be ignored for loss
         smoothing (float): smoothing rate (0.0 means the conventional CE)
         normalize_length (bool):

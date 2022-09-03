@@ -57,7 +57,7 @@ class CharParser:
             do_lowercase: True if apply lowercasing at normalizing step
                 (default: True).
         """
-
+        #import ipdb; ipdb.set_trace()
         self._labels = labels
         self._unk_id = unk_id
         self._blank_id = blank_id
@@ -69,6 +69,7 @@ class CharParser:
         self._special_labels = set([label for label in labels if len(label) > 1])
 
     def __call__(self, text: str) -> Optional[List[int]]:
+        #import ipdb; ipdb.set_trace()
         if self._do_normalize:
             text = self._normalize(text)
             if text is None:
@@ -89,13 +90,14 @@ class CharParser:
         return text
 
     def _tokenize(self, text: str) -> List[int]:
+        #import ipdb; ipdb.set_trace()
         tokens = []
         # Split by word for find special labels.
         for word_id, word in enumerate(text.split(' ')):
             if word_id != 0:  # Not first word - so we insert space before.
                 tokens.append(self._labels_map.get(' ', self._unk_id))
 
-            if word in self._special_labels:
+            if word in self._special_labels: # {'<unk>', '<sos/eos>', '<blank>'}
                 tokens.append(self._labels_map[word])
                 continue
 

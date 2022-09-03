@@ -1,4 +1,4 @@
-"""Unility functions for Transformer."""
+"""Unility functions for Transformer in bidecoder in asr."""
 
 import math
 from typing import Tuple, List
@@ -8,6 +8,14 @@ from torch.nn.utils.rnn import pad_sequence
 
 IGNORE_ID = -1
 
+BLANK_ID = 0
+BLANK_STR = '<blank>'
+
+UNK_ID = 1
+UNK_STR = '<unk>'
+
+SOSEOS_STR = '<sos/eos>'
+# SOSEOS_ID is dynaimically determined by the vocabulary size NOTE
 
 def pad_list(xs: List[torch.Tensor], pad_value: int):
     """Perform padding for the list of tensors.
@@ -164,6 +172,17 @@ def get_subsample(config):
 
 
 def remove_duplicates_and_blank(hyp: List[int]) -> List[int]:
+    new_hyp: List[int] = []
+    cur = 0
+    while cur < len(hyp):
+        if hyp[cur] != 0 or (cur > 0 and hyp[cur-1] != 0):
+            new_hyp.append(hyp[cur])
+        prev = cur
+        while cur < len(hyp) and hyp[cur] == hyp[prev]:
+            cur += 1
+    return new_hyp
+
+def remove_duplicates_and_blank_orig(hyp: List[int]) -> List[int]:
     new_hyp: List[int] = []
     cur = 0
     while cur < len(hyp):

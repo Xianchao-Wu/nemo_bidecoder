@@ -146,7 +146,7 @@ class AudioText(_Collection):
                 duration_filtered += duration
                 num_filtered += 1
                 continue
-
+            #import ipdb; ipdb.set_trace()
             text_tokens = parser(text)
             if text_tokens is None:
                 duration_filtered += duration

@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from typeguard import check_argument_types
+from nemo.collections.asr.utils.common import BLANK_ID
 
 
 class CTC(torch.nn.Module):
@@ -15,7 +16,7 @@ class CTC(torch.nn.Module):
     ):
         """ Construct CTC module
         Args:
-            odim: dimension of outputs
+            odim: dimension of outputs (vocabulary size, with <blank>, <unk>, <sos/eos>)
             encoder_output_size: number of encoder projection units
             dropout_rate: dropout rate (0.0 ~ 1.0)
             reduce: reduce the CTC loss into a scalar
@@ -28,7 +29,14 @@ class CTC(torch.nn.Module):
         self.ctc_lo = torch.nn.Linear(eprojs, odim)
 
         reduction_type = "sum" if reduce else "none"
-        self.ctc_loss = torch.nn.CTCLoss(reduction=reduction_type, zero_infinity=True) # NOTE important!!!
+        self.ctc_loss = torch.nn.CTCLoss(blank=BLANK_ID, reduction=reduction_type, zero_infinity=True) 
+        # NOTE important!!!
+        # blank=blank.id TODO 0 or 3605 or other values? -> =0 is better (to fit inference algorithms)
+        # better to be, <blank>=0, <unk>=1, ..., <sos/eos>=3605+3-1=3607
+        # 增加了三个tokens, <blank>=0, <unk>=1, <sos/eos>=3607
+
+        # 目前已有的是，3605个characters: id=2 to 3605+2-1=3606
+
         self.normalize_length = normalize_length
 
     def forward(self, hs_pad: torch.Tensor, hlens: torch.Tensor,

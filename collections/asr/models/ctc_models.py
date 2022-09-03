@@ -169,7 +169,7 @@ class EncDecCTCModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             if "feat_in" not in self._cfg.decoder or (
                 not self._cfg.decoder.feat_in and hasattr(self.encoder, '_feat_out')
             ):
-                self._cfg.decoder.feat_in = self.encoder._feat_out
+                self._cfg.decoder.feat_in = self.encoder._feat_out # 512
             if "feat_in" not in self._cfg.decoder or not self._cfg.decoder.feat_in:
                 raise ValueError("param feat_in of the decoder's config is not set!")
 

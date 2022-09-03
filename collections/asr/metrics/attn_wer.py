@@ -112,7 +112,7 @@ class ATTNWER(Metric):
     ):
         super().__init__(dist_sync_on_step=dist_sync_on_step, compute_on_step=False)
         self.batch_dim_index = batch_dim_index
-        self.blank_id = len(vocabulary) # TODO what if vocabulary[0] = ' '??? already has space ' '
+        self.blank_id = len(vocabulary) # TODO what if vocabulary[0] = ' '??? already has space ' ', 2022 08 22, blank_id是epsilon ('')的，和space(' ')不是一个东西！！！
         self.labels_map = dict([(i, vocabulary[i]) for i in range(len(vocabulary))])
         self.use_cer = use_cer
         self.ctc_decode = ctc_decode

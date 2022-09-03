@@ -252,7 +252,7 @@ class _AudioTextDataset(Dataset):
 
     def __getitem__(self, index):
         #import ipdb; ipdb.set_trace()
-        sample = self.manifest_processor.collection[index]
+        sample = self.manifest_processor.collection[index] # text_tokens = a list of token ids
         offset = sample.offset
 
         if offset is None:

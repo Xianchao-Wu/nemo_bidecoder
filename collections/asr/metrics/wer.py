@@ -109,10 +109,13 @@ class WER(Metric):
         ctc_decode=True,
         log_prediction=True,
         dist_sync_on_step=False,
+        blank_id=-1
     ):
         super().__init__(dist_sync_on_step=dist_sync_on_step, compute_on_step=False)
         self.batch_dim_index = batch_dim_index
-        self.blank_id = len(vocabulary) # TODO what if vocabulary[0] = ' '??? already has space ' '
+        self.blank_id = len(vocabulary) if blank_id == -1 else blank_id
+        # TODO what if vocabulary[0] = ' '??? already has space ' '
+
         self.labels_map = dict([(i, vocabulary[i]) for i in range(len(vocabulary))])
         self.use_cer = use_cer
         self.ctc_decode = ctc_decode

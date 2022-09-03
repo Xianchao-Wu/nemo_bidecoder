@@ -36,7 +36,8 @@ from nemo.collections.asr.models.asr_model import ASRModel, ExportableEncDecMode
 from nemo.collections.asr.parts.mixins import ASRModuleMixin
 from nemo.collections.asr.parts.preprocessing.perturb import process_augmentations
 
-from nemo.collections.asr.utils.common import (IGNORE_ID, add_sos_eos, log_add,
+from nemo.collections.asr.utils.common import (IGNORE_ID, BLANK_ID, BLANK_STR, UNK_ID, UNK_STR,  
+                                               SOSEOS_STR, add_sos_eos, log_add,
                                                remove_duplicates_and_blank, th_accuracy,
                                                reverse_pad_list) # from wenet
 from nemo.collections.asr.modules.label_smoothing_loss import LabelSmoothingLoss # from wenet
@@ -174,6 +175,8 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         self.world_size = 1
         if trainer is not None:
             self.world_size = trainer.world_size
+        # add <blank>, <unk> and <sos/eos> to self.cfg.decoder.vocabulary
+        self.extend_vocab(cfg.decoder.vocabulary)
 
         super().__init__(cfg=cfg, trainer=trainer)
         #import ipdb; ipdb.set_trace()
@@ -202,22 +205,21 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
             if self.cfg.decoder.num_classes < 1 and self.cfg.decoder.vocabulary is not None:
                 logging.info(
-                    "\nReplacing placeholder number of classes ({}) with actual number of classes - {}+1".format(
+                    "\nReplacing placeholder number of classes ({}) with actual number of classes - {}".format(
                         self.cfg.decoder.num_classes, len(self.cfg.decoder.vocabulary)
                     )
                 )
-                cfg.decoder["num_classes"] = len(self.cfg.decoder.vocabulary) + 1 # NOTE for sos/eos
+                self.cfg.decoder["num_classes"] = len(self.cfg.decoder.vocabulary) 
+                # NOTE already includes <sos/eos>
 
         #import ipdb; ipdb.set_trace()
         self.decoder = EncDecCTCAttnModel.from_config_dict(self._cfg.decoder)
 
         self.ctc_weight = self._cfg.get('ctc_weight', 0.0)
         self.reverse_weight = self._cfg.get('reverse_weight', 0.0)
-        self.sos = self.decoder.num_classes_with_blank - 1 # 3606 - 1 = 3605
-        self.eos = self.decoder.num_classes_with_blank - 1 # 3605 - 1 = 3605
+        self.sos = self.decoder.num_classes_with_blank - 1 # 3608 - 1 = 3607
+        self.eos = self.decoder.num_classes_with_blank - 1 # 3608 - 1 = 3607
         self.ignore_id = IGNORE_ID
-        #self.sos = self.cfg.decoder.num_classes - 1
-        #self.eos = self.cfg.decoder.num_classes - 1
 
         #import ipdb; ipdb.set_trace()
         #self.loss = CTCLoss(
@@ -225,12 +227,12 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         #    zero_infinity=True,
         #    reduction=self._cfg.get("ctc_reduction", "mean_batch"),
         #)
-        self.ctc = CTC(self.decoder.num_classes_with_blank, 
+        self.ctc = CTC(self.decoder.num_classes_with_blank, # nemo.collections.asr.losses.attn_ctc.CTC 
             self.encoder._feat_out,
             normalize_length = self._cfg.get('length_normalized_loss', False))
 
         self.criterion_att = LabelSmoothingLoss(
-            size = self.decoder.num_classes_with_blank, #- 1, # NOTE
+            size = self.decoder.num_classes_with_blank, 
             padding_idx = self.ignore_id, 
             #smoothing=self.cfg.model.lsm_weight, # NOTE, use 'cfg' or '_cfg'? use _cfg!
             smoothing = self._cfg.get('lsm_weight', 0.1), 
@@ -254,7 +256,13 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             ctc_decode=True,
             dist_sync_on_step=True,
             log_prediction=self._cfg.get("log_prediction", False),
+            blank_id=BLANK_ID
         )
+
+    def extend_vocab(self, vocabulary):
+        vocabulary.append(SOSEOS_STR) # <sos/eos> to the final position
+        vocabulary.insert(BLANK_ID, BLANK_STR) # <blank>:0
+        vocabulary.insert(UNK_ID, UNK_STR) # <unk>:1
 
     @torch.no_grad()
     def transcribe(
@@ -380,6 +388,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         Returns: None
 
         """
+        self.extend_vocab(new_vocabulary)
         if self.decoder.vocabulary == new_vocabulary:
             logging.warning(f"Old {self.decoder.vocabulary} and new {new_vocabulary} match. Not changing anything.")
         else:
@@ -388,7 +397,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             decoder_config = self.decoder.to_config_dict()
             new_decoder_config = copy.deepcopy(decoder_config)
             new_decoder_config['vocabulary'] = new_vocabulary
-            new_decoder_config['num_classes'] = len(new_vocabulary) + 1 # NOTE for sos/eos
+            new_decoder_config['num_classes'] = len(new_vocabulary) # NOTE already include <blank>, <unk>, <sos/eos>
 
             del self.decoder
             self.decoder = EncDecCTCAttnModel.from_config_dict(new_decoder_config)
@@ -400,11 +409,11 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             #    reduction=self._cfg.get("ctc_reduction", "mean_batch"),
             #)
             del self.ctc
-            self.ctc = CTC(self.decoder.num_classes_with_blank - 1, self.encoder._feat_out)
+            self.ctc = CTC(self.decoder.num_classes_with_blank, self.encoder._feat_out)
 
             del self.criterion_att
             self.criterion_att = LabelSmoothingLoss(
-                size = self.decoder.num_classes_with_blank - 1, # NOTE
+                size = self.decoder.num_classes_with_blank, # NOTE
                 padding_idx = self.ignore_id, 
                 #smoothing=self.cfg.model.lsm_weight, # NOTE, use 'cfg' or '_cfg'? -> '_cfg'
                 smoothing = self._cfg.get('lsm_weight', 0.1), 
@@ -1154,10 +1163,11 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
                 ps = logp[s].item()
                 for prefix, (pb, pnb) in cur_hyps:
                     last = prefix[-1] if len(prefix) > 0 else None
-                    if s == 0:  # blank
+                    if s == 0:  # blank -> TODO s=0 (' ') is not appended to the output sequence???
+                        # TODO should use blank_id, not 0, here! blank (epsilon) is different with space (' ')
                         n_pb, n_pnb = next_hyps[prefix]
                         n_pb = log_add([n_pb, pb + ps, pnb + ps])
-                        next_hyps[prefix] = (n_pb, n_pnb)
+                        next_hyps[prefix] = (n_pb, n_pnb) 
                     elif s == last:
                         #  Update *ss -> *s;
                         n_pb, n_pnb = next_hyps[prefix]
@@ -1182,7 +1192,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
 
         #import ipdb; ipdb.set_trace()
         hyps = [(y[0], log_add([y[1][0], y[1][1]])) for y in cur_hyps]
-        return hyps, encoder_out
+        return hyps, encoder_out # TODO hyps does not include token_id=0...
 
     
     def attention_rescoring(
@@ -1368,6 +1378,7 @@ class EncDecCTCAttnModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         topk_index = topk_index.masked_fill_(mask, self.eos)  # (B, maxlen)
         hyps = [hyp.tolist() for hyp in topk_index]
         scores = topk_prob.max(1)
+        # TODO should explicitly tell blank_id here in "remove_duplicates_and_blank"
         hyps = [remove_duplicates_and_blank(hyp) for hyp in hyps]
         return hyps, scores
 
